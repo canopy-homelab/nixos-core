@@ -1618,3 +1618,66 @@ def test_trigger_homepage_sync_acquires_homepage_sync_lock(tmp_path: Path, mock_
     with patch("appctl_router.cmd_sync_homepage", side_effect=mock_sync):
         router._trigger_homepage_sync()
         assert lock_acquired is True
+
+
+def test_operational_router_workload_update_pulls_monorepo_when_parent_git_exists(
+    tmp_path: Path, admin_principal: Principal, mock_workload_dir: Path
+):
+    """Ensure workload.update targets parent monorepo .git when <app>/.git is absent (#33)."""
+    monorepo_root = mock_workload_dir.parent
+    (monorepo_root / ".git").mkdir()
+
+    router = OperationalRouter(
+        audit_logger=AuditLogger(tmp_path / "audit.jsonl"),
+        lock_manager=TargetLockManager(tmp_path / "locks"),
+        sites_dir=monorepo_root,
+    )
+    req = OperationRequest.model_validate(
+        {
+            "operation": "workload.update",
+            "target": "snappymail",
+            "parameters": {"expected_branch": "main"},
+        }
+    )
+
+    mock_app = MagicMock()
+    mock_app.name = "snappymail"
+    mock_app.dir_path = str(mock_workload_dir)
+
+    executed: list[tuple[list[str], Path | None]] = []
+
+    def mock_subproc(cmd: list[str], **kwargs):
+        executed.append((cmd, kwargs.get("cwd")))
+        if "status" in cmd:
+            return 0, "", ""
+        if "pull" in cmd:
+            return 0, "Updating 1111..2222\nFast-forward", ""
+        if "rev-parse" in cmd:
+            return 0, "beef123", ""
+        return 0, "success", ""
+
+    with (
+        patch("appctl_router.resolve_app", return_value=mock_app),
+        patch("appctl_router.run_bounded_subprocess", side_effect=mock_subproc),
+        patch("appctl_router.cmd_sync_homepage"),
+    ):
+        resp = router.dispatch(req, admin_principal)
+        assert resp.success is True
+        assert resp.result is not None
+        assert resp.result["commit_sha"] == "beef123"
+
+        status_calls = [c for c, _ in executed if c[0] == "git" and "status" in c]
+        assert status_calls == [
+            ["git", "-C", str(monorepo_root), "status", "--porcelain", "--", "snappymail/"]
+        ]
+        git_pull_calls = [(c, cwd) for c, cwd in executed if c[0] == "git" and "pull" in c]
+        assert git_pull_calls == [
+            (["git", "-C", str(monorepo_root), "pull", "--ff-only", "origin", "--", "main"], monorepo_root)
+        ]
+        rev_parse_calls = [c for c, _ in executed if c[0] == "git" and "rev-parse" in c]
+        assert rev_parse_calls == [
+            ["git", "-C", str(monorepo_root), "rev-parse", "--short", "HEAD"]
+        ]
+        # Compose commands still run in app_dir
+        compose_cwds = [cwd for c, cwd in executed if c[0] == "docker"]
+        assert compose_cwds and all(cwd == mock_workload_dir for cwd in compose_cwds)

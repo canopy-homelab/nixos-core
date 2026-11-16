@@ -266,3 +266,100 @@ def test_get_local_checkout_status_git_error(tmp_path: Path):
         assert status.is_dirty is False
         assert status.status_label == "⚠️ Git Error (exit 128)"
 
+
+def _init_git_repo(repo_dir: Path, branch: str = "main") -> None:
+    env = _clean_git_env()
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "init", "-b", branch],
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "config", "user.email", "test@example.com"],
+        check=True,
+        env=env,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "config", "user.name", "Test"],
+        check=True,
+        env=env,
+    )
+
+
+def test_get_local_checkout_status_monorepo_subpath_isolation(tmp_path: Path):
+    """Ensure monorepo subpath inspection isolates dirty state per workload directory (#33)."""
+    workloads_dir = tmp_path / "Workloads"
+    app_a = workloads_dir / "app_a"
+    app_b = workloads_dir / "app_b"
+    app_a.mkdir(parents=True)
+    app_b.mkdir(parents=True)
+    _init_git_repo(workloads_dir, branch="main")
+
+    (app_a / "app.yaml").write_text("name: app_a\n", encoding="utf-8")
+    (app_b / "app.yaml").write_text("name: app_b\n", encoding="utf-8")
+
+    env = _clean_git_env()
+    subprocess.run(["git", "-C", str(workloads_dir), "add", "."], check=True, env=env)
+    subprocess.run(
+        ["git", "-C", str(workloads_dir), "commit", "-m", "init monorepo"],
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+
+    # Dirty only app_b
+    (app_b / "app.yaml").write_text("name: app_b_dirty\n", encoding="utf-8")
+    (app_b / "untracked.txt").write_text("dirty\n", encoding="utf-8")
+
+    status_a = get_local_checkout_status(app_a)
+    assert status_a.is_git is True
+    assert status_a.is_dirty is False
+    assert status_a.branch == "main"
+    assert status_a.commit_sha != ""
+    assert "✓ Clean" in status_a.status_label
+
+    status_b = get_local_checkout_status(app_b)
+    assert status_b.is_git is True
+    assert status_b.is_dirty is True
+    assert status_b.branch == "main"
+    assert "* Dirty" in status_b.status_label
+
+
+def test_get_local_checkout_status_hybrid_precedence_standalone_over_monorepo(
+    tmp_path: Path,
+):
+    """Ensure standalone <app>/.git takes precedence over parent monorepo .git (#33)."""
+    workloads_dir = tmp_path / "Workloads"
+    app_a = workloads_dir / "app_a"
+    app_a.mkdir(parents=True)
+    _init_git_repo(workloads_dir, branch="main")
+
+    env = _clean_git_env()
+    (workloads_dir / "README.md").write_text("monorepo\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(workloads_dir), "add", "README.md"], check=True, env=env
+    )
+    subprocess.run(
+        ["git", "-C", str(workloads_dir), "commit", "-m", "monorepo root"],
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+
+    # Nested standalone .git inside app_a on a distinct branch
+    _init_git_repo(app_a, branch="standalone-branch")
+    (app_a / "app.yaml").write_text("name: app_a\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(app_a), "add", "app.yaml"], check=True, env=env)
+    subprocess.run(
+        ["git", "-C", str(app_a), "commit", "-m", "standalone commit"],
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+
+    status_a = get_local_checkout_status(app_a)
+    assert status_a.is_git is True
+    assert status_a.is_dirty is False
+    assert status_a.branch == "standalone-branch"
+

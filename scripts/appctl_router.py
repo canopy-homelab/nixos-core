@@ -1021,6 +1021,15 @@ class OperationalRouter:
             "message": f"Workload '{app.name}' pulled and updated",
         }
 
+    @staticmethod
+    def _resolve_git_context(app_dir: Path) -> tuple[Path, str | None]:
+        """Resolve (git_root, subpath) supporting standalone <app>/.git and parent monorepo .git."""
+        if (app_dir / ".git").exists():
+            return app_dir, None
+        if (app_dir.parent / ".git").exists():
+            return app_dir.parent, f"{app_dir.name}/"
+        return app_dir, None
+
     def _op_workload_update(
         self, request: OperationRequest, app: Any
     ) -> tuple[dict[str, Any], str | None]:
@@ -1037,11 +1046,17 @@ class OperationalRouter:
         app_dir = Path(app.dir_path)
         is_core = self._is_core_target(app)
         container = self._target_container(app)
+        git_root, git_subpath = (
+            (app_dir, None) if is_core else self._resolve_git_context(app_dir)
+        )
 
         # 1. Clean working tree check
+        status_cmd = ["git", "-C", str(git_root), "status", "--porcelain"]
+        if git_subpath is not None:
+            status_cmd.extend(["--", git_subpath])
         code, status_out, _ = run_bounded_subprocess(
-            ["git", "-C", str(app_dir), "status", "--porcelain"],
-            cwd=app_dir,
+            status_cmd,
+            cwd=git_root,
             timeout=5.0,
         )
         if code != 0 or status_out.strip():
@@ -1050,11 +1065,11 @@ class OperationalRouter:
             )
 
         # 2. git pull --ff-only
-        pull_cmd = ["git", "-C", str(app_dir), "pull", "--ff-only"]
+        pull_cmd = ["git", "-C", str(git_root), "pull", "--ff-only"]
         if params.expected_branch:
             pull_cmd.extend(["origin", "--", params.expected_branch])
         code, pull_out, pull_err = run_bounded_subprocess(
-            pull_cmd, cwd=app_dir, timeout=60.0
+            pull_cmd, cwd=git_root, timeout=60.0
         )
         if code != 0:
             raise RouterExecutionError(
@@ -1132,8 +1147,8 @@ class OperationalRouter:
 
         # 5. Extract current commit SHA
         _, sha_out, _ = run_bounded_subprocess(
-            ["git", "-C", str(app_dir), "rev-parse", "--short", "HEAD"],
-            cwd=app_dir,
+            ["git", "-C", str(git_root), "rev-parse", "--short", "HEAD"],
+            cwd=git_root,
             timeout=5.0,
         )
         commit_sha = sha_out.strip() or None

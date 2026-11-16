@@ -92,10 +92,17 @@ def get_local_checkout_status(dir_path: Path | str) -> CheckoutStatus:
     """
     Inspect local git repository checkout state.
     Reports clean/dirty status, active branch/ref, and current commit SHA.
+    Supports standalone <dir_path>/.git checkouts (checked first) and
+    unified monorepo checkouts where <dir_path>.parent/.git exists.
     """
     path = Path(dir_path)
-    git_dir = path / ".git"
-    if not git_dir.exists():
+    subpath: str | None = None
+    if (path / ".git").exists():
+        git_root = path
+    elif (path.parent / ".git").exists():
+        git_root = path.parent
+        subpath = f"{path.name}/"
+    else:
         return CheckoutStatus(
             is_git=False,
             is_dirty=False,
@@ -107,12 +114,15 @@ def get_local_checkout_status(dir_path: Path | str) -> CheckoutStatus:
     # Clean git environment so calls are not polluted by outer hooks
     git_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 
-    # 1. Check cleanliness
+    # 1. Check cleanliness (scoped to workload subpath in monorepo mode)
     is_dirty = False
     git_error: str | None = None
+    status_cmd = ["git", "-C", str(git_root), "status", "--porcelain"]
+    if subpath is not None:
+        status_cmd.extend(["--", subpath])
     try:
         status_res = subprocess.run(
-            ["git", "-C", str(path), "status", "--porcelain"],
+            status_cmd,
             capture_output=True,
             text=True,
             check=False,
@@ -132,7 +142,7 @@ def get_local_checkout_status(dir_path: Path | str) -> CheckoutStatus:
     branch = ""
     try:
         branch_res = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "--abbrev-ref", "HEAD"],
+            ["git", "-C", str(git_root), "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
             check=False,
@@ -144,7 +154,7 @@ def get_local_checkout_status(dir_path: Path | str) -> CheckoutStatus:
             if branch == "HEAD":
                 # Detached HEAD, check describe
                 desc_res = subprocess.run(
-                    ["git", "-C", str(path), "describe", "--tags", "--exact-match"],
+                    ["git", "-C", str(git_root), "describe", "--tags", "--exact-match"],
                     capture_output=True,
                     text=True,
                     check=False,
@@ -160,7 +170,7 @@ def get_local_checkout_status(dir_path: Path | str) -> CheckoutStatus:
     commit_sha = ""
     try:
         sha_res = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "--short", "HEAD"],
+            ["git", "-C", str(git_root), "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,
             check=False,
