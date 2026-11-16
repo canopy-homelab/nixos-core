@@ -7,7 +7,9 @@
 
 let
   # Declaratively read the external Python script into the Nix store at evaluation time
-  ipMonitorScript = pkgs.writers.writePython3Bin "dynu-ip-monitor" { } (builtins.readFile ../scripts/monitor.py);
+  ipMonitorScript = pkgs.writers.writePython3Bin "dynu-ip-monitor" {
+    flakeIgnore = [ "E501" ];
+  } (builtins.readFile ../scripts/monitor.py);
 in
 {
   # Define the keys to decrypt
