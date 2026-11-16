@@ -1,6 +1,6 @@
-# 🛡️ Homelab Core — Security Controls & Hardening
+# 🛡️ Canopy NixOS Core — Security Controls & Hardening
 
-This document outlines the security controls, container isolation rules, and operational boundaries implemented in **Homelab Core**.
+This document outlines the security controls, container isolation rules, and operational boundaries implemented in **Canopy NixOS Core** (`canopy-homelab/nixos-core`).
 
 ---
 

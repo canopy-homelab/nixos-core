@@ -1,8 +1,8 @@
-# Homelab Core — Agent Guidelines
+# Canopy NixOS Core — Agent Guidelines
 
 ## 1. Project Overview & Architectural Boundaries
 
-**Homelab Core** defines the declarative NixOS host foundation, shared platform infrastructure services, security boundaries, and the `appctl` operational control plane. Independent application workloads live in `~/Sites/<app>` and integrate through declarative `app.yaml` manifests and workload-scoped Docker Compose files.
+**Canopy NixOS Core** (`canopy-homelab/nixos-core`) defines the declarative NixOS host foundation, shared platform infrastructure services, security boundaries, and the `appctl` operational control plane for the **Canopy** ecosystem. Independent application workloads live in `~/Sites/<app>` and integrate through declarative `app.yaml` manifests and workload-scoped Docker Compose files.
 
 ### Core vs. `~/Sites` Ownership
 - **Core owns**: NixOS host configuration, shared platform services (edge ingress, SSO/LDAP, mail, log/update monitors), platform-level ports and security policy, and orchestration/deployment mechanics.

@@ -1,15 +1,15 @@
-# Homelab Core
+# Canopy — NixOS Core (`canopy-homelab/nixos-core`)
 
-**Homelab Core** is the declarative NixOS host foundation, shared platform infrastructure stack, and `appctl` operational control plane for a self-hosted homelab appliance.
+**Canopy NixOS Core** is the declarative NixOS host foundation, shared platform infrastructure stack, and `appctl` operational control plane for the **Canopy** self-hosted homelab ecosystem.
 
 It is designed around a strict two-tier boundary:
-1. **Homelab Core (this repository)**: Owns NixOS operating system configuration, edge TLS ingress, SSO/LDAP directory identity, mail routing, read-only Docker socket isolation, and orchestration/deployment mechanics.
-2. **Workload Repositories (`~/Sites/<app>`)**: Independently deployed application stacks that integrate with Core through self-describing `app.yaml` manifests and workload-scoped `docker-compose.yml` definitions.
+1. **Canopy NixOS Core (`canopy-homelab/nixos-core`, this repository)**: Owns NixOS operating system configuration, edge TLS ingress, SSO/LDAP directory identity, mail routing, read-only Docker socket isolation, and orchestration/deployment mechanics.
+2. **Canopy Workloads (`~/Sites/<app>`, e.g. `<user>/canopy-workloads`)**: Independently deployed application stacks that integrate with Core through self-describing `app.yaml` manifests and workload-scoped `docker-compose.yml` definitions.
 
 All platform definitions are strictly instance-agnostic; domain names (`HOMELAB_DOMAIN`) and secrets (`/run/secrets/`) are injected declaratively at runtime.
 
 > [!NOTE]
-> **Milestone P4 Control Plane Architecture**: Under [Milestone P4 in `ROADMAP.md`](ROADMAP.md), `appctl` operates as an operational control plane daemon service (`homelab-appctl.service`) exposing a unified logical API across a local Unix Domain Socket (`/run/homelab/appctl.sock`) and loopback HTTP (`127.0.0.1:9876`). The thin `appctl` CLI delegates commands to this daemon with automatic `SO_PEERCRED` identity inspection and token-based RBAC. See [`docs/appctl.md`](docs/appctl.md) and [`ROADMAP.md`](ROADMAP.md) for details.
+> **Milestone P4 Control Plane Architecture**: Under [Milestone P4 in `ROADMAP.md`](ROADMAP.md), `appctl` operates as an operational control plane daemon service (`homelab-appctl.service`) exposing a unified logical API across a local Unix Domain Socket (`/run/homelab/appctl.sock`) and loopback HTTP (`127.0.0.1:9001`). The thin `appctl` CLI delegates commands to this daemon with automatic `SO_PEERCRED` identity inspection and token-based RBAC. See [`docs/appctl.md`](docs/appctl.md) and [`ROADMAP.md`](ROADMAP.md) for details.
 
 ---
 

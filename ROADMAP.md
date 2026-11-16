@@ -1,8 +1,8 @@
-# 🗺️ Homelab Core & Appctl Engineering Roadmap
+# 🗺️ Canopy — NixOS Core & Appctl Engineering Roadmap
 
-This document serves as the repository-facing projection of the authoritative **Homelab Architecture Consolidation & Control Plane Roadmap (v6)** and the locked Milestone P4 boundary specification ([`docs/plans/p4-readiness-plan.md`](docs/plans/p4-readiness-plan.md)).
+This document serves as the repository-facing projection of the authoritative **Canopy Architecture Consolidation & Control Plane Roadmap (v6)** and the locked Milestone P4 boundary specification ([`docs/plans/p4-readiness-plan.md`](docs/plans/p4-readiness-plan.md)).
 
-It describes the implementation trajectory and phased engineering milestones for transitioning Homelab Core into a unified platform driven by the `appctl` Operational Control Plane.
+It describes the implementation trajectory and phased engineering milestones for evolving the **Canopy** platform (`canopy-homelab/nixos-core`) around a unified `appctl` Operational Control Plane.
 
 > **Governing Architectural Decisions**: See [`docs/decisions/README.md`](docs/decisions/README.md) for the authoritative ADR index ([ADR-0001: 3-Tier Provenance Model](docs/decisions/0001-3tier-architecture-and-provenance.md), [ADR-0002: Operational Control Plane Architecture](docs/decisions/0002-appctl-control-plane-architecture.md), and [ADR-0003: Pydantic v2 Runtime Validation](docs/decisions/0003-pydantic-v2-runtime-validation.md)).
 
