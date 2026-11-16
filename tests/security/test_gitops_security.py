@@ -1188,3 +1188,131 @@ services:
     )
     assert valid is True
     assert err is None
+
+
+def test_validate_compose_security_allows_remote_git_build_urls(tmp_path: Path):
+    """Ensure validate_compose_security permits remote Git/HTTP build URLs (#33)."""
+    compose_file = tmp_path / "docker-compose.yml"
+    compose_file.write_text(
+        """
+services:
+  https_app:
+    build: https://git.example.com/operator/app.git#main
+  ssh_dict_app:
+    build:
+      context: ssh://git@git.example.com:2223/operator/app.git
+      dockerfile: Dockerfile
+  scp_git_app:
+    build: git@git.example.com:operator/app.git
+  local_app:
+    build:
+      context: ./docker
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "docker").mkdir()
+    valid, err = gitops_dispatcher.validate_compose_security(
+        compose_file, tmp_path, app_name="my-app"
+    )
+    assert valid is True
+    assert err is None
+
+
+@pytest.mark.parametrize(
+    "build_yaml,expected_substr",
+    [
+        ("build: /etc", "escaping workload root"),
+        ("build:\n      context: ../../outside", "escaping workload root"),
+        ('build: "${BUILD_CTX}/app"', "variable interpolation"),
+        ('build:\n      context: "${BUILD_CTX}/app"', "variable interpolation"),
+    ],
+)
+def test_validate_compose_security_rejects_unsafe_build_contexts(
+    tmp_path: Path, build_yaml: str, expected_substr: str
+):
+    """Ensure validate_compose_security blocks local build host-path escapes and ${...} interpolation (#33)."""
+    app_dir = tmp_path / "Workloads" / "my-app"
+    app_dir.mkdir(parents=True)
+    compose_file = app_dir / "docker-compose.yml"
+    compose_file.write_text(
+        f"services:\n  app:\n    {build_yaml}\n",
+        encoding="utf-8",
+    )
+    valid, err = gitops_dispatcher.validate_compose_security(
+        compose_file, app_dir, app_name="my-app"
+    )
+    assert valid is False
+    assert err is not None and expected_substr in err.lower()
+
+
+def test_monorepo_webhook_dispatch_pulls_once_and_deploys_only_admitted_changed_subdirs(
+    tmp_path: Path, monkeypatch
+):
+    """Ensure canopy-workloads push pulls ~/Workloads once and dispatches only admitted changed subdirs (#33)."""
+    workloads_dir = tmp_path / "Workloads"
+    (workloads_dir / ".git").mkdir(parents=True)
+    snappymail_dir = workloads_dir / "snappymail"
+    gitea_dir = workloads_dir / "homelab-gitea"
+    rogue_dir = workloads_dir / "rogue-app"
+    for d in (snappymail_dir, gitea_dir, rogue_dir):
+        d.mkdir(parents=True)
+        (d / "app.yaml").write_text(f"name: {d.name}\n", encoding="utf-8")
+
+    registry = tmp_path / "deployments.yaml"
+    registry.write_text(
+        'schemaVersion: "1.0"\n'
+        "repositories:\n"
+        "  snappymail:\n"
+        '    path: "~/Workloads/snappymail"\n'
+        "  gitea:\n"
+        '    path: "~/Workloads/homelab-gitea"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(gitops_dispatcher, "SITES_DIR", workloads_dir)
+    monkeypatch.setattr(gitops_dispatcher, "DEPLOYMENTS_FILE", registry)
+    monkeypatch.setattr(gitops_dispatcher, "STATE_DIR", tmp_path / "state")
+
+    payload = {
+        "ref": "refs/heads/main",
+        "after": "deadbeef1234",
+        "repository": {"name": "canopy-workloads"},
+        "commits": [
+            {
+                "added": ["rogue-app/app.yaml", "README.md"],
+                "modified": ["snappymail/docker-compose.yml"],
+                "removed": ["../Core/scripts/appctl"],
+            }
+        ],
+    }
+
+    git_calls: list[list[str]] = []
+    enqueued: list[Path] = []
+    spawned: list[str] = []
+
+    def mock_run(cmd, *args, **kwargs):
+        git_calls.append(cmd)
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(gitops_dispatcher.subprocess, "run", mock_run)
+    monkeypatch.setattr(
+        gitops_dispatcher,
+        "enqueue_deployment",
+        lambda target_dir, cfg, branch, commit_sha="": enqueued.append(target_dir),
+    )
+    monkeypatch.setattr(
+        gitops_dispatcher,
+        "spawn_worker_async",
+        lambda target_name: spawned.append(target_name),
+    )
+
+    assert gitops_dispatcher.is_monorepo_push(payload) is True
+    ok, dispatched, _ = gitops_dispatcher.dispatch_monorepo_push(payload, "push")
+    assert ok is True
+    assert dispatched == [snappymail_dir.resolve()]
+    assert enqueued == [snappymail_dir.resolve()]
+    assert spawned == ["snappymail"]
+    # Pulled ~/Workloads exactly once
+    pull_calls = [c for c in git_calls if "pull" in c]
+    assert len(pull_calls) == 1
+    assert str(workloads_dir) in pull_calls[0]

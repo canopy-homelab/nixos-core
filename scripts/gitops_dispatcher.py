@@ -561,6 +561,46 @@ def validate_compose_security(
                         f"Service '{svc_name}' specifies prohibited security_opt: {opt}.",
                     )
 
+        build_cfg = svc.get("build")
+        if build_cfg is not None:
+            build_context: str | None = None
+            if isinstance(build_cfg, str):
+                build_context = build_cfg.strip()
+            elif isinstance(build_cfg, dict):
+                raw_ctx = build_cfg.get("context")
+                if raw_ctx is not None:
+                    build_context = str(raw_ctx).strip()
+            else:
+                return (
+                    False,
+                    f"Service '{svc_name}' specifies invalid 'build' configuration.",
+                )
+
+            if build_context:
+                if "${" in build_context or "}" in build_context:
+                    return (
+                        False,
+                        f"Service '{svc_name}' specifies prohibited variable interpolation in build context: '{build_context}'.",
+                    )
+
+                remote_prefixes = ("https://", "http://", "ssh://", "git@", "git://")
+                if not build_context.startswith(remote_prefixes):
+                    if build_context.startswith("~"):
+                        resolved_build = Path(build_context).expanduser().resolve()
+                    elif Path(build_context).is_absolute():
+                        resolved_build = Path(build_context).resolve()
+                    else:
+                        resolved_build = (allowed_root / build_context).resolve()
+
+                    if not (
+                        allowed_root.is_dir()
+                        and resolved_build.is_relative_to(canonical_allowed_root)
+                    ):
+                        return (
+                            False,
+                            f"Service '{svc_name}' specifies prohibited build context escaping workload root: '{build_context}'.",
+                        )
+
         raw_env_files = svc.get("env_file")
         if raw_env_files:
             env_file_list: list[str] = []
@@ -925,6 +965,215 @@ def execute_deployment(target_dir: Path, deployment_config: dict, branch: str) -
         return False
 
 
+def is_monorepo_push(payload: dict) -> bool:
+    """Return True when payload targets the unified workloads monorepo (e.g. canopy-workloads)."""
+    if not (SITES_DIR / ".git").exists():
+        return False
+    repo_field = payload.get("repository")
+    if not isinstance(repo_field, dict):
+        return False
+    repo_name = repo_field.get("name")
+    if not isinstance(repo_name, str):
+        return False
+    cleaned = repo_name.strip()
+    return cleaned in ("canopy-workloads", SITES_DIR.name)
+
+
+def extract_monorepo_changed_subdirs(
+    payload: dict, monorepo_dir: Path, git_env: dict[str, str] | None = None
+) -> list[str]:
+    """
+    Extract safe top-level workload subdirectory names touched by a monorepo push.
+    Combines commit payload file lists (added/modified/removed) with git diff when available.
+    Rejects absolute paths, '..' traversal, and root-level files.
+    """
+    raw_paths: list[str] = []
+    commits = payload.get("commits")
+    if isinstance(commits, list):
+        for commit in commits:
+            if not isinstance(commit, dict):
+                continue
+            for key in ("added", "modified", "removed"):
+                items = commit.get(key)
+                if isinstance(items, list):
+                    for item in items:
+                        if isinstance(item, str) and item.strip():
+                            raw_paths.append(item.strip())
+
+    before_sha = str(payload.get("before", "")).strip()
+    after_sha = str(payload.get("after", "")).strip()
+    zero_sha = "0" * 40
+    if (
+        before_sha
+        and after_sha
+        and before_sha != zero_sha
+        and after_sha != zero_sha
+        and REPO_NAME_RE.match(before_sha)
+        and REPO_NAME_RE.match(after_sha)
+    ):
+        env = git_env or {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        try:
+            diff_res = subprocess.run(
+                ["git", "-C", str(monorepo_dir), "diff", "--name-only", before_sha, after_sha],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=15.0,
+                env=env,
+            )
+            if diff_res.returncode == 0:
+                for line in diff_res.stdout.splitlines():
+                    if line.strip():
+                        raw_paths.append(line.strip())
+        except (subprocess.SubprocessError, OSError):
+            pass
+
+    seen: set[str] = set()
+    subdirs: list[str] = []
+    for rel in raw_paths:
+        if rel.startswith("/") or "\\" in rel:
+            continue
+        parts = Path(rel).parts
+        if len(parts) < 2 or ".." in parts:
+            continue
+        top = parts[0]
+        if not REPO_NAME_RE.match(top):
+            continue
+        if top not in seen:
+            seen.add(top)
+            subdirs.append(top)
+    return subdirs
+
+
+def dispatch_monorepo_push(
+    payload: dict, event_type: str | None = None
+) -> tuple[bool, list[Path], str]:
+    """
+    Handle a Gitea push webhook for the unified workloads monorepo:
+    1. Validate push event and refs/heads/<branch>.
+    2. Pull ~/Workloads once under an exclusive lock.
+    3. Determine changed top-level <app>/ subdirectories, filter strictly against
+       deployments.yaml, validate each affected manifest, and enqueue/spawn workers.
+    """
+    if event_type and event_type.strip().lower() != "push":
+        return (
+            False,
+            [],
+            f"Event '{event_type}' is not eligible for deployment. Only 'push' is allowed.",
+        )
+
+    if "pull_request" in payload or "issue" in payload or "release" in payload:
+        return (
+            False,
+            [],
+            "Payload represents non-push event (pull_request/issue/release). Rejected.",
+        )
+
+    ref = payload.get("ref", "")
+    if not isinstance(ref, str) or not ref:
+        return False, [], "Missing or invalid 'ref' in payload."
+    if ref.startswith("refs/tags/"):
+        return False, [], f"Tag push '{ref}' is not deployable."
+    if not ref.startswith("refs/heads/"):
+        return False, [], f"Ref '{ref}' is not a head branch. Only 'refs/heads/*' is supported."
+
+    pushed_branch = ref.removeprefix("refs/heads/")
+    if not pushed_branch:
+        return False, [], "Empty branch name extracted from ref."
+
+    expected_monorepo_branch = os.environ.get("MONOREPO_BRANCH", "main")
+    if pushed_branch != expected_monorepo_branch:
+        return (
+            False,
+            [],
+            f"Branch mismatch: pushed branch '{pushed_branch}' does not match monorepo branch '{expected_monorepo_branch}'.",
+        )
+
+    git_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    lock_file_path = get_target_lock("_monorepo")
+    with open(lock_file_path, "w", encoding="utf-8") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            pull_res = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(SITES_DIR),
+                    "pull",
+                    "--ff-only",
+                    "origin",
+                    "--",
+                    pushed_branch,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=60.0,
+                env=git_env,
+            )
+            if pull_res.returncode != 0:
+                return (
+                    False,
+                    [],
+                    f"Failed to pull monorepo '{SITES_DIR}': {pull_res.stderr.strip()}",
+                )
+        finally:
+            with contextlib.suppress(OSError):
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+    changed_subdirs = extract_monorepo_changed_subdirs(payload, SITES_DIR, git_env=git_env)
+    trusted_mapping = get_trusted_repository_mapping()
+    admitted_paths = {p.resolve() for p in trusted_mapping.values()}
+    canonical_sites = SITES_DIR.resolve()
+
+    commit_sha = str(payload.get("after", "") or "")
+    if not commit_sha and isinstance(payload.get("head_commit"), dict):
+        commit_sha = str(payload.get("head_commit", {}).get("id", "") or "")
+
+    dispatched: list[Path] = []
+    for subdir in changed_subdirs:
+        candidate = (SITES_DIR / subdir).resolve()
+        if not (candidate.is_relative_to(canonical_sites) and candidate in admitted_paths and candidate.is_dir()):
+            logger.info(
+                f"Ignoring unregistered or out-of-bounds monorepo subdirectory '{subdir}'."
+            )
+            continue
+
+        manifest_file = candidate / "app.yaml"
+        manifest: dict[str, Any] = {}
+        if manifest_file.is_file():
+            try:
+                parsed_manifest = parse_manifest(manifest_file)
+                manifest = parsed_manifest.model_dump()
+            except (ManifestValidationError, OSError) as e:
+                logger.warning(f"Skipping '{subdir}' due to manifest error: {e}")
+                continue
+            valid, err_msg = validate_manifest_deployment(manifest)
+            if not valid:
+                logger.warning(f"Skipping '{subdir}' due to deployment policy error: {err_msg}")
+                continue
+
+        deployment_config = manifest.get("deployment")
+        if not isinstance(deployment_config, dict):
+            deployment_config = {"branch": "main", "actions": ["git_pull", "compose_up"]}
+
+        if deployment_config.get("branch", "main") != pushed_branch:
+            logger.info(
+                f"Skipping '{subdir}': declared branch '{deployment_config.get('branch', 'main')}' != '{pushed_branch}'."
+            )
+            continue
+
+        enqueue_deployment(candidate, deployment_config, pushed_branch, commit_sha=commit_sha)
+        spawn_worker_async(candidate.name)
+        dispatched.append(candidate)
+
+    return (
+        True,
+        dispatched,
+        f"Monorepo push dispatched {len(dispatched)} workload(s) on branch '{pushed_branch}'.",
+    )
+
+
 def admit_deployment(
     payload: dict, event_type: str | None = None
 ) -> tuple[bool, Path | None, dict, str, str]:
@@ -1266,6 +1515,14 @@ def main():
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON payload: {e}")
             sys.exit(1)
+
+        if is_monorepo_push(payload):
+            ok, dispatched, reason = dispatch_monorepo_push(payload, event_type)
+            if not ok:
+                logger.warning(f"🚫 Monorepo webhook rejected: {reason}")
+                sys.exit(0 if "Branch mismatch" in reason else 1)
+            logger.info(f"✅ {reason} ({[d.name for d in dispatched]})")
+            sys.exit(0)
 
         admitted, target_dir, deployment_config, branch, reason = admit_deployment(
             payload, event_type
