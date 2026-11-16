@@ -89,3 +89,10 @@ docker compose config -q
   - Never run destructive Git commands (`reset --hard`, `restore`, `clean -fd`, `push --force`) without explicit user confirmation.
   - Stage atomic changes and use Conventional Commits (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`), waiting for user approval before committing.
   - Preserve [The Unlicense](UNLICENSE) across the repository.
+
+### Organization Planning Sync Contract
+- **Ecosystem Hub**: Master roadmap and cross-repo plans live in `canopy-homelab/.profile` (`ROADMAP.md`, `docs/plans/`, `todo.txt`).
+- **Organization Kanban Board**: **Canopy Platform** (`https://gitea.<domain>/canopy-homelab/-/projects/7`, Project ID: `7`).
+- **Column IDs (Deep Signal)**: `Backlog` -> `30` (default), `Ready` -> `31`, `Work in Progress` -> `32`, `Review` -> `33`, `Completed` -> `34`.
+- **Mirror Policy**: Primary sovereign Gitea forge (`canopy-homelab/nixos-core`); GitHub (`canopy-homelab/nixos-core`) is an automated `sync_on_commit` push mirror.
+- **Re-sync Trigger**: Re-run `/gitea-plan` on scope shifts or before decomposing the next rolling milestone (P5/P6/P7).
