@@ -37,12 +37,19 @@ CORE_DIR = os.environ.get(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 )
 
-SITES_DIR = os.environ.get(
-    "SITES_DIR",
-    os.path.join(os.path.dirname(CORE_DIR), "Sites")
-    if os.path.isdir(os.path.join(os.path.dirname(CORE_DIR), "Sites"))
-    else os.path.expanduser("~/Sites"),
-)
+def _resolve_default_workloads_dir() -> str:
+    """Resolve workloads root honoring WORKLOADS_DIR, SITES_DIR, sibling Workloads, or ~/Workloads."""
+    env_dir = os.environ.get("WORKLOADS_DIR") or os.environ.get("SITES_DIR")
+    if env_dir:
+        return env_dir
+    sibling_workloads = os.path.join(os.path.dirname(CORE_DIR), "Workloads")
+    if os.path.isdir(sibling_workloads):
+        return sibling_workloads
+    return os.path.expanduser("~/Workloads")
+
+
+WORKLOADS_DIR = _resolve_default_workloads_dir()
+SITES_DIR = WORKLOADS_DIR
 
 HOMELAB_DOMAIN = (
     os.environ.get("HOMELAB_DOMAIN")

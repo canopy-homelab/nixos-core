@@ -485,11 +485,17 @@ def test_nixos_switch_alias_uses_path_and_impure():
 
 
 def test_nixos_safe_directory_includes_core_and_sites():
-    """Ensure programs.git.config.safe.directory includes Core and Sites to prevent dubious ownership errors."""
+    """Ensure programs.git.config.safe.directory includes Core, Workloads, and Sites to prevent dubious ownership errors."""
     config_nix = CORE_ROOT / "nixos" / "configuration.nix"
     content = config_nix.read_text(encoding="utf-8")
     assert '"/home/${config.homelab.operatorUser}/Core"' in content, (
         "nixos/configuration.nix must include Core in git safe.directory"
+    )
+    assert '"/home/${config.homelab.operatorUser}/Workloads"' in content, (
+        "nixos/configuration.nix must include Workloads in git safe.directory"
+    )
+    assert '"/home/${config.homelab.operatorUser}/Workloads/*"' in content, (
+        "nixos/configuration.nix must include Workloads/* in git safe.directory"
     )
     assert '"/home/${config.homelab.operatorUser}/Sites/*"' in content, (
         "nixos/configuration.nix must include Sites/* in git safe.directory"
@@ -521,9 +527,31 @@ def test_nixos_safe_directory_includes_core_and_sites():
         assert "/home/operator/Core" in safe_dirs, (
             f"Expected '/home/operator/Core' in git safe.directory, got {safe_dirs}"
         )
+        assert "/home/operator/Workloads" in safe_dirs, (
+            f"Expected '/home/operator/Workloads' in git safe.directory, got {safe_dirs}"
+        )
+        assert "/home/operator/Workloads/*" in safe_dirs, (
+            f"Expected '/home/operator/Workloads/*' in git safe.directory, got {safe_dirs}"
+        )
         assert "/home/operator/Sites/*" in safe_dirs, (
             f"Expected '/home/operator/Sites/*' in git safe.directory, got {safe_dirs}"
         )
+
+
+def test_nixos_homeserver_defaults_to_workloads_dir():
+    """Ensure homeserver.nix defaults sitesDir to ~/Workloads and exports WORKLOADS_DIR + SITES_DIR (#33)."""
+    homeserver_nix = CORE_ROOT / "nixos" / "modules" / "homeserver.nix"
+    content = homeserver_nix.read_text(encoding="utf-8")
+
+    assert 'default = "/home/${config.homelab.operatorUser}/Workloads";' in content, (
+        "homelab.sitesDir must default to /home/${config.homelab.operatorUser}/Workloads"
+    )
+    assert "WORKLOADS_DIR = config.homelab.sitesDir;" in content, (
+        "homeserver.nix must export WORKLOADS_DIR"
+    )
+    assert "SITES_DIR = config.homelab.sitesDir;" in content, (
+        "homeserver.nix must export SITES_DIR for backward compatibility"
+    )
 
 
 

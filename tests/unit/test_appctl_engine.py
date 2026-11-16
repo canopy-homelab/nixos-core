@@ -554,3 +554,56 @@ def test_cmd_list_flags_manifest_error(
     engine.cmd_list([])
     captured = capsys.readouterr()
     assert "Manifest Error" in captured.out
+
+
+def test_workloads_dir_env_precedence_and_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Ensure WORKLOADS_DIR > SITES_DIR > ~/Workloads fallback across core modules (#33)."""
+    import importlib
+
+    import appctl_daemon
+    import gitops_dispatcher
+
+    workloads_override = tmp_path / "custom-workloads"
+    sites_override = tmp_path / "legacy-sites"
+    fake_home = tmp_path / "home"
+    fake_core = tmp_path / "repo" / "core"
+    fake_core.mkdir(parents=True)
+
+    try:
+        # 1. WORKLOADS_DIR takes precedence over SITES_DIR
+        monkeypatch.setenv("CORE_DIR", str(fake_core))
+        monkeypatch.setenv("WORKLOADS_DIR", str(workloads_override))
+        monkeypatch.setenv("SITES_DIR", str(sites_override))
+        importlib.reload(engine)
+        importlib.reload(appctl_daemon)
+        importlib.reload(gitops_dispatcher)
+        assert engine.SITES_DIR == str(workloads_override)
+        assert appctl_daemon.SITES_DIR == workloads_override
+        assert gitops_dispatcher.SITES_DIR == workloads_override
+
+        # 2. SITES_DIR acts as fallback when WORKLOADS_DIR is unset
+        monkeypatch.delenv("WORKLOADS_DIR", raising=False)
+        importlib.reload(engine)
+        importlib.reload(appctl_daemon)
+        importlib.reload(gitops_dispatcher)
+        assert engine.SITES_DIR == str(sites_override)
+        assert appctl_daemon.SITES_DIR == sites_override
+        assert gitops_dispatcher.SITES_DIR == sites_override
+
+        # 3. Default resolves to ~/Workloads when neither env var is set
+        monkeypatch.delenv("SITES_DIR", raising=False)
+        monkeypatch.setenv("HOME", str(fake_home))
+        importlib.reload(engine)
+        importlib.reload(appctl_daemon)
+        importlib.reload(gitops_dispatcher)
+        expected_default = fake_home / "Workloads"
+        assert engine.SITES_DIR == str(expected_default)
+        assert appctl_daemon.SITES_DIR == expected_default
+        assert gitops_dispatcher.SITES_DIR == expected_default
+    finally:
+        monkeypatch.undo()
+        importlib.reload(engine)
+        importlib.reload(appctl_daemon)
+        importlib.reload(gitops_dispatcher)

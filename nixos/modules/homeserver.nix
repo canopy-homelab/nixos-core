@@ -23,8 +23,8 @@
     };
     sitesDir = lib.mkOption {
       type = lib.types.str;
-      default = "/home/${config.homelab.operatorUser}/Sites";
-      description = "Path to Sites directory";
+      default = "/home/${config.homelab.operatorUser}/Workloads";
+      description = "Path to Workloads directory (legacy option name: sitesDir)";
     };
   };
 
@@ -124,6 +124,8 @@
       GITOPS_APPCTL_TOKEN_FILE = config.sops.secrets."gitops/appctl_token".path;
       DOCKER_CONFIG = "/home/${config.homelab.operatorUser}/.local/state/homelab/docker";
       HOMELAB_STATE_ROOT = "/home/${config.homelab.operatorUser}/var/lib/homelab";
+      WORKLOADS_DIR = config.homelab.sitesDir;
+      SITES_DIR = config.homelab.sitesDir;
     };
 
     serviceConfig = {
@@ -198,6 +200,7 @@
       APPCTL_AUDIT_LOG = "/var/log/homelab/appctl/audit.jsonl";
       APPCTL_LOCK_DIR = "/var/lib/homelab/appctl/locks";
       APPCTL_TOKENS_FILE = config.sops.secrets."appctl/tokens_json".path;
+      WORKLOADS_DIR = config.homelab.sitesDir;
       SITES_DIR = config.homelab.sitesDir;
       CORE_DIR = config.homelab.coreDir;
       HOMELAB_STATE_ROOT = "/home/${config.homelab.operatorUser}/var/lib/homelab";

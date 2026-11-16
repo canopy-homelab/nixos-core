@@ -36,7 +36,12 @@ try:
 except ImportError:
     yaml = None
 
-SITES_DIR = Path(os.environ.get("SITES_DIR", os.path.expanduser("~/Sites")))
+WORKLOADS_DIR = Path(
+    os.environ.get("WORKLOADS_DIR")
+    or os.environ.get("SITES_DIR")
+    or os.path.expanduser("~/Workloads")
+)
+SITES_DIR = WORKLOADS_DIR
 CORE_DIR = Path(os.environ.get("CORE_DIR", Path(__file__).resolve().parent.parent))
 CONFIG_DIR = Path(
     os.environ.get("HOMELAB_CONFIG_DIR", os.path.expanduser("~/.config/homelab"))
@@ -287,7 +292,10 @@ def get_trusted_repository_mapping() -> dict[str, Path]:
                 raw_path = entry.get("path")
                 if not raw_path:
                     continue
-                if raw_path.startswith("~/Sites/") or raw_path == "~/Sites":
+                if raw_path.startswith("~/Workloads/") or raw_path == "~/Workloads":
+                    sub = raw_path[len("~/Workloads") :].lstrip("/")
+                    p = (SITES_DIR / sub).resolve() if sub else SITES_DIR.resolve()
+                elif raw_path.startswith("~/Sites/") or raw_path == "~/Sites":
                     sub = raw_path[len("~/Sites") :].lstrip("/")
                     p = (SITES_DIR / sub).resolve() if sub else SITES_DIR.resolve()
                 else:

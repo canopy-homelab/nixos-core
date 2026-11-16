@@ -23,6 +23,8 @@
     enable = true;
     config.safe.directory = [
       "/home/${config.homelab.operatorUser}/Core"
+      "/home/${config.homelab.operatorUser}/Workloads"
+      "/home/${config.homelab.operatorUser}/Workloads/*"
       "/home/${config.homelab.operatorUser}/Sites/*"
     ];
   };

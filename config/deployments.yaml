@@ -1,48 +1,48 @@
 # Core Authoritative Repository Identity Registry
 # Governs admitted continuous deployment targets for GitOps webhook execution.
 # Owns: repository identity, canonical filesystem path, and aliases.
-# Enforces: strict path containment within ~/Sites.
+# Enforces: strict path containment within ~/Workloads.
 
 schemaVersion: "1.0"
 repositories:
   snappymail:
-    path: "~/Sites/snappymail"
+    path: "~/Workloads/snappymail"
     aliases:
       - "homelab-snappymail"
       - "mail"
       - "webmail"
   gitea:
-    path: "~/Sites/homelab-gitea"
+    path: "~/Workloads/homelab-gitea"
     aliases:
       - "homelab-gitea"
       - "git"
   jellyfin:
-    path: "~/Sites/homelab-jellyfin"
+    path: "~/Workloads/homelab-jellyfin"
     aliases:
       - "homelab-jellyfin"
       - "media"
   courses:
-    path: "~/Sites/courses"
+    path: "~/Workloads/courses"
     aliases:
       - "homelab-courses"
   bdinvite:
-    path: "~/Sites/homelab-bdinvite"
+    path: "~/Workloads/homelab-bdinvite"
     aliases:
       - "homelab-bdinvite"
       - "birthday"
   landing:
-    path: "~/Sites/homelab-landing"
+    path: "~/Workloads/homelab-landing"
     aliases:
       - "homelab-landing"
   mermaid:
-    path: "~/Sites/homelab-mermaid"
+    path: "~/Workloads/homelab-mermaid"
     aliases:
       - "homelab-mermaid"
   excalidraw:
-    path: "~/Sites/homelab-excalidraw"
+    path: "~/Workloads/homelab-excalidraw"
     aliases:
       - "homelab-excalidraw"
   houston:
-    path: "~/Sites/homelab-houston"
+    path: "~/Workloads/homelab-houston"
     aliases:
       - "homelab-houston"

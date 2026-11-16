@@ -57,7 +57,12 @@ from pydantic import ValidationError
 logger = logging.getLogger("appctl_daemon")
 
 CORE_DIR = Path(os.environ.get("CORE_DIR", Path(__file__).resolve().parent.parent))
-SITES_DIR = Path(os.environ.get("SITES_DIR", os.path.expanduser("~/Sites")))
+WORKLOADS_DIR = Path(
+    os.environ.get("WORKLOADS_DIR")
+    or os.environ.get("SITES_DIR")
+    or os.path.expanduser("~/Workloads")
+)
+SITES_DIR = WORKLOADS_DIR
 DEPLOYMENTS_FILE = Path(
     os.environ.get("HOMELAB_DEPLOYMENTS_FILE", CORE_DIR / "config" / "deployments.yaml")
 )

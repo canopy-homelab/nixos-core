@@ -228,6 +228,34 @@ def test_missing_or_corrupt_registry_fails_closed(tmp_path: Path, monkeypatch):
 
     # Missing registry must fail closed: empty mapping, no resolution
     assert gitops_dispatcher.get_trusted_repository_mapping() == {}
+
+
+def test_registry_resolves_workloads_and_sites_tilde_prefixes(
+    tmp_path: Path, monkeypatch
+):
+    """Ensure ~/Workloads/<app> and legacy ~/Sites/<app> paths resolve cleanly inside SITES_DIR."""
+    workloads_dir = tmp_path / "Workloads"
+    app_a = workloads_dir / "snappymail"
+    app_b = workloads_dir / "legacy-app"
+    app_a.mkdir(parents=True)
+    app_b.mkdir(parents=True)
+
+    registry = tmp_path / "deployments.yaml"
+    registry.write_text(
+        'schemaVersion: "1.0"\n'
+        "repositories:\n"
+        "  snappymail:\n"
+        '    path: "~/Workloads/snappymail"\n'
+        "  legacy:\n"
+        '    path: "~/Sites/legacy-app"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(gitops_dispatcher, "SITES_DIR", workloads_dir)
+    monkeypatch.setattr(gitops_dispatcher, "DEPLOYMENTS_FILE", registry)
+
+    assert gitops_dispatcher.resolve_repository("snappymail") == app_a.resolve()
+    assert gitops_dispatcher.resolve_repository("legacy") == app_b.resolve()
     assert gitops_dispatcher.resolve_repository("valid") is None
 
     # Corrupt YAML registry must also fail closed
