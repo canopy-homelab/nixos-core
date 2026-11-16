@@ -20,6 +20,8 @@
   # Generate the unified environment file at runtime in /run/secrets/traefik-deployments.env
   sops.templates."traefik-deployments.env" = {
     owner = config.homelab.operatorUser;
+    group = "homelab-operators";
+    mode = "0440";
     content = lib.generators.toKeyValue {} {
       # --- Core / Infrastructure Settings ---
       PROXY_NETWORK = "proxy-net";

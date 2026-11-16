@@ -63,6 +63,8 @@
   # Generate the unified environment file at runtime in /run/secrets/homeserver.env
   sops.templates."homeserver.env" = {
     owner = config.homelab.operatorUser;
+    group = "homelab-operators";
+    mode = "0440";
     content = lib.generators.toKeyValue {} {
       DOMAIN = config.homelab.domain;
       LLDAP_LDAP_BASE_DN = ldapBaseDn;
