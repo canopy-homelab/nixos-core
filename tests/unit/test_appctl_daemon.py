@@ -153,6 +153,7 @@ def daemon_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         f'    path: "{docs_dir}"\n',
         encoding="utf-8",
     )
+    monkeypatch.setenv("HOMELAB_DEPLOYMENTS_FILE", str(deployments_file))
 
     router = OperationalRouter(
         audit_logger=audit_logger,

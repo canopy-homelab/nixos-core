@@ -21,11 +21,6 @@ repositories:
     aliases:
       - "homelab-jellyfin"
       - "media"
-  docs:
-    path: "~/Sites/homelab-doc2site"
-    aliases:
-      - "doc2site"
-      - "homelab-doc2site"
   courses:
     path: "~/Sites/courses"
     aliases:

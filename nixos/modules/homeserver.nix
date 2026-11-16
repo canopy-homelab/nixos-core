@@ -123,6 +123,7 @@
       GITOPS_SECRET_FILE = config.sops.secrets."gitops/webhook_secret".path;
       GITOPS_APPCTL_TOKEN_FILE = config.sops.secrets."gitops/appctl_token".path;
       DOCKER_CONFIG = "/home/${config.homelab.operatorUser}/.local/state/homelab/docker";
+      HOMELAB_STATE_ROOT = "/home/${config.homelab.operatorUser}/var/lib/homelab";
     };
 
     serviceConfig = {
@@ -199,6 +200,7 @@
       APPCTL_TOKENS_FILE = config.sops.secrets."appctl/tokens_json".path;
       SITES_DIR = config.homelab.sitesDir;
       CORE_DIR = config.homelab.coreDir;
+      HOMELAB_STATE_ROOT = "/home/${config.homelab.operatorUser}/var/lib/homelab";
       HOMELAB_CONFIG_DIR = "/home/${config.homelab.operatorUser}/.config/homelab";
       HOMELAB_DEPLOYMENTS_FILE = "${config.homelab.coreDir}/config/deployments.yaml";
     };
