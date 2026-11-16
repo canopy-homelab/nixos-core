@@ -243,9 +243,9 @@
     "d /home/${config.homelab.operatorUser}/.local/state/homelab/gitops 0755 ${config.homelab.operatorUser} users -"
     "d /home/${config.homelab.operatorUser}/.local/state/homelab/docker 0755 ${config.homelab.operatorUser} users -"
     "d /home/${config.homelab.operatorUser}/var/lib/homelab 0755 ${config.homelab.operatorUser} users -"
-    # POSIX ACLs granting homelab-appctl traverse and access to operator sites & homepage config
-    "a+ /home/${config.homelab.operatorUser} - - - - u:homelab-appctl:x"
-    "a+ ${config.homelab.coreDir} - - - - u:homelab-appctl:x"
+    # POSIX ACLs granting homelab-appctl and homelab-operators traverse & access (explicit mask m:: required on 0700 home dirs)
+    "a+ /home/${config.homelab.operatorUser} - - - - u:homelab-appctl:x,g:homelab-operators:x,m::rx"
+    "a+ ${config.homelab.coreDir} - - - - u:homelab-appctl:x,g:homelab-operators:x,m::rx"
     "A+ ${config.homelab.sitesDir} - - - - d:u:homelab-appctl:rwx,u:homelab-appctl:rwx"
     "A+ /home/${config.homelab.operatorUser}/var/lib/homelab - - - - d:u:homelab-appctl:rwx,u:homelab-appctl:rwx"
     "A+ ${config.homelab.coreDir}/config/homepage - - - - d:u:homelab-appctl:rwx,u:homelab-appctl:rwx"
