@@ -10,6 +10,7 @@ Repository-level architectural decisions are recorded in `docs/decisions/` using
 
 | Decision Record | Status | Date | Scope & One-Line Purpose |
 | :--- | :--- | :--- | :--- |
+| [**ADR-0004: Unified ~/Workloads Monorepo & State Isolation**](0004-unified-workloads-monorepo.md) | `accepted` | 2026-11-16 | Amends ADR-0001 to adopt the unified `~/Workloads` Tier 2 monorepo (`canopy-workloads`), rename `~/Sites` to `~/Workloads` with `WORKLOADS_DIR` fallback, and enforce `~/var/lib/homelab/<app>/` state isolation. |
 | [**ADR-0003: Centralized Runtime Validation & Serialization via Pydantic v2**](0003-pydantic-v2-runtime-validation.md) | `accepted` | 2026-10-15 | Adopts Pydantic v2 as the single runtime schema and validation authority across workload manifests and daemon API to enforce fail-closed type safety, strict schema-based boundaries, and secret-safe serialization. |
 | [**ADR-0002: Homelab Operational Control Plane & Deployment Model Architecture**](0002-appctl-control-plane-architecture.md) | `accepted` | 2026-10-07 | Establishes `homelab-appctl.service` as the central operational control plane daemon, one logical command API (`POST /v1/operations`) across dual transports (UDS and HTTP), mandatory token auth with UDS `SO_PEERCRED` viewer fallback, dedicated service isolation, fail-closed audit logging, GitOps worker unification, and deterministic Git-backed declarative deployment state. |
 | [**ADR-0001: Homelab 3-Tier Architecture & Deployment Provenance Model**](0001-3tier-architecture-and-provenance.md) | `accepted` | 2026-09-28 | Establishes 3-tier separation (Software, OCI Artifact, Sites Deployment, Core Platform), two workload classes (Source-Backed vs. Image-Only), isolated state root (`~/var/lib/homelab/<app>/`), and two operational inspection axes. |
@@ -17,6 +18,15 @@ Repository-level architectural decisions are recorded in `docs/decisions/` using
 ---
 
 ## 🧭 Summaries of Governing Decisions
+
+### [ADR-0004: Unified ~/Workloads Monorepo & State Isolation](0004-unified-workloads-monorepo.md)
+* **Canonical Document**: [`0004-unified-workloads-monorepo.md`](0004-unified-workloads-monorepo.md)
+* **Status**: `accepted` (Active — Amends ADR-0001)
+* **Core Commitments**:
+  1. **Tier 2 Rename (`~/Sites` -> `~/Workloads`)**: Canonical Tier 2 deployment root is `~/Workloads`, with `WORKLOADS_DIR` -> `SITES_DIR` environment fallback.
+  2. **Unified `canopy-workloads` Monorepo**: Tier 2 workload manifests (`app.yaml`, `docker-compose.yml`) consolidate under `~/Workloads/<app>/`, supporting hybrid per-app `.git` checkouts during migration.
+  3. **Mandatory State Isolation**: All mutable application data resides strictly under `~/var/lib/homelab/<app>/` (or named Docker volumes), never inside `~/Workloads`.
+  4. **Core Registry & Safe Directory Containment**: `config/deployments.yaml` resolves admitted workloads within `WORKLOADS_DIR`; NixOS `safe.directory` includes `~/Workloads` and `~/Workloads/*`.
 
 ### [ADR-0003: Centralized Runtime Validation & Serialization via Pydantic v2](0003-pydantic-v2-runtime-validation.md)
 * **Canonical Document**: [`0003-pydantic-v2-runtime-validation.md`](0003-pydantic-v2-runtime-validation.md)
