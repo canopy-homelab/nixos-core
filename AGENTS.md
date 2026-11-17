@@ -27,7 +27,7 @@ Every implementation step must close with the automated verification gate before
 
 ```bash
 # Full verification gate: Ruff + Pyright + Pytest (124+ tests) + nix flake check + NixOS drv eval
-./scripts/test
+./scripts/run-tests
 
 # Targeted fast iteration commands (inside direnv / nix develop, or via .venv)
 ruff check .

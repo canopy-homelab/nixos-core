@@ -391,4 +391,4 @@ Before marking Milestone P4 complete, the following automated regression suite m
 | **Truthful Error Reporting** | `test_execution_failure_audit`: Failing or timing-out Docker/Git subprocess returns `500 ERR_EXECUTION_FAILED` and records `phase: FAILED` in `audit.jsonl`. | Reject PR |
 | **Audit Persistence Gate** | `test_audit_failure_blocks_mutation`: Unwritable `audit.jsonl` aborts mutating command with `500 ERR_EXECUTION_FAILED` and zero Docker/Git invocations. | Block Release |
 | **Daemon Crash Recovery** | `test_daemon_restart_preserves_state`: Clean stop and restart of daemon unlinks/rebinds socket cleanly and leaves running workloads and Git state undisturbed. | Reject PR |
-| **Existing Invariant Regression** | Run `./scripts/test`: All 124 existing unit, security, structural, Ruff, Pyright, and Nix flake sandbox checks pass with 0 regressions. | Block Merge |
+| **Existing Invariant Regression** | Run `./scripts/run-tests`: All 124 existing unit, security, structural, Ruff, Pyright, and Nix flake sandbox checks pass with 0 regressions. | Block Merge |

@@ -95,7 +95,7 @@ For detailed runtime layers, network segmentation, and the P4 control-plane tran
 │   ├── bootstrap_token.py     # Operator Bearer token provisioning helper
 │   ├── core_manifest.py       # Authoritative Pydantic v2 schema v1.0 parser for app.yaml
 │   ├── gitops_dispatcher.py   # Authenticated webhook CD engine with Compose AST validation
-│   └── test                   # Automated verification gate (Ruff, Pyright, Pytest, Nix flake checks)
+│   └── run-tests              # Automated verification gate (Ruff, Pyright, Pytest, Nix flake checks)
 ├── tests/                     # Unit, structural, and security invariant test suites
 └── docs/                      # Architecture references, operational runbooks, and MADR decisions
 ```
@@ -110,7 +110,7 @@ Entering the directory via `direnv` (`use flake`) or `nix develop` provisions th
 
 ```bash
 # Run full automated verification (Ruff + Pyright + Pytest + nix flake check + NixOS drv eval)
-./scripts/test
+./scripts/run-tests
 
 # Run individual checks directly
 ruff check .

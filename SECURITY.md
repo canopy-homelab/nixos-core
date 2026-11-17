@@ -63,7 +63,7 @@ This document outlines the security controls, container isolation rules, and ope
 - [x] User identities managed in LLDAP (`users.${HOMELAB_DOMAIN}`).
 - [x] `socket-proxy` configured with `POST=0`, `DELETE=0`, `BUILD=0`, `EXEC=0`.
 - [x] Webhook HMAC signature verification active on port 9000.
-- [x] Invariant test runner (`./scripts/test`) passing on changes.
+- [x] Invariant test runner (`./scripts/run-tests`) passing on changes.
 - [x] `config/letsencrypt/acme.json` permissions set to `0600`.
 - [x] Host firewall ports restricted to declared services in `nixos/modules/homeserver.nix`.
 - [x] Control plane daemon (`homelab-appctl.service`) isolated to UDS (`0660`) and loopback HTTP.

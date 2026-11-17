@@ -207,7 +207,7 @@ Before committing changes to Homelab Core, run the repository test runner:
 
 ```bash
 cd ~/Core
-./scripts/test
+./scripts/run-tests
 ```
 This runs:
 * Code formatting and lint checks (`ruff`).

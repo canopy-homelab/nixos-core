@@ -148,5 +148,5 @@ It describes the implementation trajectory and phased engineering milestones for
 
 Progress across milestones is governed by explicit verification criteria:
 * **Behavioral Invariant Coverage**: All defined domain, authorization, deployment, and security invariants must have automated regression tests.
-* **Pre-Merge Validation**: Every commit must pass `./scripts/test` (Ruff linter + Pytest suite + Nix flake check).
+* **Pre-Merge Validation**: Every commit must pass `./scripts/run-tests` (Ruff linter + Pytest suite + Nix flake check).
 * **Zero Production Regressions**: Platform migrations must include verified pre-flight snapshots, state parity proofs, and documented rollback runbooks.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test - Automated test & invariant verification runner for Homelab Core
+# scripts/run-tests - Automated test & invariant verification runner for Homelab Core
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
