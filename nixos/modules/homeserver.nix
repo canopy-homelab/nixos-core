@@ -32,6 +32,18 @@
     domainParts = lib.splitString "." config.homelab.domain;
     ldapBaseDn = lib.concatStringsSep "," (map (part: "dc=${part}") domainParts);
   in {
+    # ── Host Activation Guard ────────────────────────────────────────────────────
+    # Prevents activating on a live host if homelab.domain defaulted to example.test (e.g. forgot --impure)
+    system.activationScripts.checkHomelabDomain = {
+      text = ''
+        if [ "${config.homelab.domain}" = "example.test" ]; then
+          echo "❌ [homelab] FATAL: homelab.domain is defaulting to 'example.test'!" >&2
+          echo "❌ [homelab] Did you run 'nixos-rebuild switch' without the '--impure' flag?" >&2
+          echo "❌ [homelab] To activate properly: sudo nixos-rebuild switch --flake path:/home/operator/Core#server --impure" >&2
+          exit 1
+        fi
+      '';
+    };
     # Define the keys to decrypt from secrets.yaml
     sops.secrets = (lib.genAttrs [
       "dynu/api_key"
