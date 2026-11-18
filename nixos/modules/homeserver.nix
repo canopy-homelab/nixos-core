@@ -259,6 +259,7 @@
     "d ${config.homelab.coreDir}/config/stalwart/data 0777 ${config.homelab.operatorUser} users -"
     "d ${config.homelab.coreDir}/config/stalwart/etc 0777 ${config.homelab.operatorUser} users -"
     "d ${config.homelab.sitesDir} 0755 ${config.homelab.operatorUser} users -"
+    "a+ ${config.homelab.coreDir}/config/authelia/emails.txt - - - - u:1000:rw,m::rw"
     "d /home/${config.homelab.operatorUser}/.local/state/homelab/gitops 0755 ${config.homelab.operatorUser} users -"
     "d /home/${config.homelab.operatorUser}/.local/state/homelab/docker 0755 ${config.homelab.operatorUser} users -"
     "d /home/${config.homelab.operatorUser}/var/lib/homelab 0755 ${config.homelab.operatorUser} users -"
