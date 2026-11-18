@@ -163,12 +163,12 @@ Homelab enforces a strict architectural boundary between independent application
 #### 1. Independent Sites Workloads (`~/Sites/<app>`)
 - **Automated Lifecycle**: Workloads declare their lifecycle via `app.yaml` manifests and Compose definitions.
 - **Update Command**: `appctl update <workload>` performs pre-flight verification, branch matching, `git pull --ff-only`, container image pull, stack reload, and dashboard synchronization.
-- **GitOps Webhook Dispatch**: Workloads registered in `config/deployments.yaml` can be triggered automatically via authenticated GitOps webhooks on Gitea push events.
+- **GitOps Webhook Dispatch**: Workloads registered in `~/Workloads/deployments.yaml` (with `config/deployments.yaml` as the example template) can be triggered automatically via authenticated GitOps webhooks on Gitea push events.
 - **Daemon Permissions**: `homelab-appctl.service` holds read-write permissions over `~/Sites` to manage files, compose configurations, and workload state.
 
 #### 2. Homelab Core Platform Stack (`~/Core`)
 - **Host Foundation & Invariant Boundary**: Core defines NixOS host definitions, platform secrets, edge ingress, and security sandboxes.
-- **No Untrusted Webhooks**: Core does **not** register for webhook dispatch in `config/deployments.yaml`. External push events can never trigger an automated deployment or rebuild of Core.
+- **No Untrusted Webhooks**: Core does **not** register for webhook dispatch in `~/Workloads/deployments.yaml`. External push events can never trigger an automated deployment or rebuild of Core.
 - **Read-Only Sandbox**: Under NixOS systemd sandboxing (`ProtectHome = "read-only"`), `homelab-appctl.service` has strictly read-only access to `/home/operator/Core`. The daemon cannot mutate the Core Git repository or run `git pull` on Core.
 - **Operator-Driven Update Workflow**: Core updates must be executed explicitly by the operator:
   1. Review and pull repository changes:

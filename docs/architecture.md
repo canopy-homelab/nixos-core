@@ -52,7 +52,7 @@ The runtime environment consists of four functional layers:
 ### C. Cross-Cutting Orchestration
 Orchestration coordinates operations across the runtime layers:
 * **`appctl` Operational Control Plane Daemon (`homelab-appctl.service`, `scripts/appctl_daemon.py`, `scripts/appctl_router.py`)**: Centralized control plane running under isolated service identity `homelab-appctl:homelab-operators`. Exposes `POST /v1/operations` and `GET /v1/health` over `/run/homelab/appctl.sock` (mode `0660`) and `127.0.0.1:9001`, enforcing SHA-256 Bearer token authentication, 3-role RBAC (`homelab-admin`, `homelab-operator`, `homelab-viewer`), per-target `flock` serialization, fail-closed append-only audit logging (`/var/log/homelab/appctl/audit.jsonl`), Pydantic v2 `app.yaml` validation, Compose AST security checks, and pure-Python `.env` assembly.
-* **GitOps Webhook Dispatcher (`scripts/gitops_dispatcher.py`)**: Governed by the `homelab-gitops.service` systemd unit, it receives webhooks on port 9000, verifies HMAC-SHA256 signatures, enforces the `config/deployments.yaml` allowlist, and delegates serialized `workload.update` execution to `homelab-appctl.service` over `/run/homelab/appctl.sock` using its `homelab-operator` Bearer token.
+* **GitOps Webhook Dispatcher (`scripts/gitops_dispatcher.py`)**: Governed by the `homelab-gitops.service` systemd unit, it receives webhooks on port 9000, verifies HMAC-SHA256 signatures, enforces the `~/Workloads/deployments.yaml` allowlist (configured via `HOMELAB_DEPLOYMENTS_FILE`, with `config/deployments.yaml` as the example template), and delegates serialized `workload.update` execution to `homelab-appctl.service` over `/run/homelab/appctl.sock` using its `homelab-operator` Bearer token.
 
 ---
 

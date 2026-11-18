@@ -82,7 +82,7 @@ For detailed runtime layers, network segmentation, and the P4 control-plane tran
 ├── flake.nix                  # NixOS host configuration, devShell (.venv symlink), and CI checks
 ├── docker-compose.yml         # Core platform service stack
 ├── nixos/                     # Declarative NixOS modules, systemd units, and SOPS secret wiring
-├── config/                    # Service configurations (Traefik, Authelia, Homepage, deployments.yaml)
+├── config/                    # Service configurations (Traefik, Authelia, Homepage, deployments.yaml template)
 ├── scripts/
 │   ├── appctl                 # Thin operational CLI delegating to control plane daemon
 │   ├── appctl_daemon.py       # Async HTTP/UDS daemon server (homelab-appctl.service)

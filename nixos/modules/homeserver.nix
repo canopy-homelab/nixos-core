@@ -138,6 +138,7 @@
       HOMELAB_STATE_ROOT = "/home/${config.homelab.operatorUser}/var/lib/homelab";
       WORKLOADS_DIR = config.homelab.sitesDir;
       SITES_DIR = config.homelab.sitesDir;
+      HOMELAB_DEPLOYMENTS_FILE = "${config.homelab.sitesDir}/deployments.yaml";
     };
 
     serviceConfig = {
@@ -217,7 +218,7 @@
       CORE_DIR = config.homelab.coreDir;
       HOMELAB_STATE_ROOT = "/home/${config.homelab.operatorUser}/var/lib/homelab";
       HOMELAB_CONFIG_DIR = "/home/${config.homelab.operatorUser}/.config/homelab";
-      HOMELAB_DEPLOYMENTS_FILE = "${config.homelab.coreDir}/config/deployments.yaml";
+      HOMELAB_DEPLOYMENTS_FILE = "${config.homelab.sitesDir}/deployments.yaml";
     };
 
     serviceConfig = {
