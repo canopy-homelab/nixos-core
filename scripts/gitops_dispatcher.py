@@ -47,7 +47,7 @@ CONFIG_DIR = Path(
     os.environ.get("HOMELAB_CONFIG_DIR", os.path.expanduser("~/.config/homelab"))
 )
 DEPLOYMENTS_FILE = Path(
-    os.environ.get("HOMELAB_DEPLOYMENTS_FILE", CORE_DIR / "config" / "deployments.yaml")
+    os.environ.get("HOMELAB_DEPLOYMENTS_FILE") or (WORKLOADS_DIR / "deployments.yaml")
 )
 DEFAULT_SECRET_PATH = Path(
     os.environ.get("GITOPS_SECRET_FILE", "/run/secrets/gitops/webhook_secret")
@@ -265,11 +265,7 @@ def get_trusted_repository_mapping() -> dict[str, Path]:
     """
     mapping: dict[str, Path] = {}
 
-    registry_file = (
-        DEPLOYMENTS_FILE
-        if DEPLOYMENTS_FILE.is_file()
-        else (CONFIG_DIR / "deployments.yaml")
-    )
+    registry_file = DEPLOYMENTS_FILE
     if not registry_file.is_file():
         logger.error(
             f"Authoritative registry {registry_file} not found. Failing closed with zero admitted repositories."

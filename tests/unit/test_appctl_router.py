@@ -1416,6 +1416,7 @@ def test_operational_router_workload_update_propagates_non_zero_exit_and_stderr(
         return (0, "", "")
 
     with (
+        patch("appctl_router.load_admitted_workloads", return_value={"snappymail"}),
         patch("appctl_router.resolve_app", return_value=mock_app),
         patch("appctl_router.run_bounded_subprocess", side_effect=mock_subproc),
         patch("appctl_router.cmd_sync_homepage"),

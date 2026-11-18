@@ -492,3 +492,48 @@ def test_rbac_viewer_denied_on_sensitive_reads():
             enforce_rbac(viewer, sens_op, "snappymail")
         assert "not permitted to access sensitive operation" in str(exc_info.value)
         assert exc_info.value.code == ErrorCode.ERR_PERMISSION_DENIED
+
+
+def test_default_deployments_file_resolves_to_workloads_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """DEFAULT_DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml and fails closed when absent."""
+    import os
+    import subprocess
+    import sys
+
+    import appctl_auth
+
+    scripts_dir = str(Path(__file__).resolve().parents[2] / "scripts")
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in {"HOMELAB_DEPLOYMENTS_FILE", "WORKLOADS_DIR", "SITES_DIR"}
+    }
+    env["HOME"] = str(tmp_path)
+    env["PYTHONPATH"] = scripts_dir
+
+    resolved = subprocess.check_output(
+        [sys.executable, "-c", "import appctl_auth; print(appctl_auth.DEFAULT_DEPLOYMENTS_FILE)"],
+        env=env,
+        text=True,
+    ).strip()
+    expected = tmp_path / "Workloads" / "deployments.yaml"
+    assert Path(resolved) == expected
+
+    # Absent ~/Workloads/deployments.yaml must fail closed (no CORE_DIR fallback)
+    monkeypatch.delenv("HOMELAB_DEPLOYMENTS_FILE", raising=False)
+    monkeypatch.delenv("WORKLOADS_DIR", raising=False)
+    monkeypatch.delenv("SITES_DIR", raising=False)
+    monkeypatch.setattr(appctl_auth, "DEFAULT_DEPLOYMENTS_FILE", expected)
+    assert appctl_auth.load_admitted_workloads() == set()
+
+    # WORKLOADS_DIR takes precedence when HOMELAB_DEPLOYMENTS_FILE is unset
+    custom_workloads = tmp_path / "CustomWorkloads"
+    custom_workloads.mkdir()
+    (custom_workloads / "deployments.yaml").write_text(
+        "repositories:\n  custom_app:\n    path: ~/Workloads/custom_app\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("WORKLOADS_DIR", str(custom_workloads))
+    assert appctl_auth.load_admitted_workloads() == {"custom_app"}

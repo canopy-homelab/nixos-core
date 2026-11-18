@@ -34,7 +34,12 @@ except ImportError:
 
 DEFAULT_TOKENS_FILE = Path("/run/secrets/appctl/tokens.json")
 DEFAULT_DEPLOYMENTS_FILE = (
-    Path(__file__).resolve().parent.parent / "config" / "deployments.yaml"
+    Path(
+        os.environ.get("WORKLOADS_DIR")
+        or os.environ.get("SITES_DIR")
+        or os.path.expanduser("~/Workloads")
+    )
+    / "deployments.yaml"
 )
 
 CORE_TARGETS: frozenset[str] = frozenset(
@@ -227,8 +232,12 @@ def load_admitted_workloads(deployments_path: Path | str | None = None) -> set[s
     """
     if deployments_path is not None:
         reg_file = Path(deployments_path)
-    elif "HOMELAB_DEPLOYMENTS_FILE" in os.environ:
-        reg_file = Path(os.environ["HOMELAB_DEPLOYMENTS_FILE"])
+    elif env_deploy := os.environ.get("HOMELAB_DEPLOYMENTS_FILE"):
+        reg_file = Path(env_deploy)
+    elif env_workloads := (
+        os.environ.get("WORKLOADS_DIR") or os.environ.get("SITES_DIR")
+    ):
+        reg_file = Path(env_workloads) / "deployments.yaml"
     else:
         reg_file = DEFAULT_DEPLOYMENTS_FILE
 
