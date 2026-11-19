@@ -495,29 +495,14 @@ def test_rbac_viewer_denied_on_sensitive_reads():
 
 
 def test_default_deployments_file_resolves_to_workloads_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_isolated_script_expr
 ):
     """DEFAULT_DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml and fails closed when absent."""
-    import os
-    import subprocess
-    import sys
-
     import appctl_auth
 
-    scripts_dir = str(Path(__file__).resolve().parents[2] / "scripts")
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if k not in {"HOMELAB_DEPLOYMENTS_FILE", "WORKLOADS_DIR", "SITES_DIR"}
-    }
-    env["HOME"] = str(tmp_path)
-    env["PYTHONPATH"] = scripts_dir
-
-    resolved = subprocess.check_output(
-        [sys.executable, "-c", "import appctl_auth; print(appctl_auth.DEFAULT_DEPLOYMENTS_FILE)"],
-        env=env,
-        text=True,
-    ).strip()
+    resolved = run_isolated_script_expr(
+        "import appctl_auth; print(appctl_auth.DEFAULT_DEPLOYMENTS_FILE)"
+    )
     expected = tmp_path / "Workloads" / "deployments.yaml"
     assert Path(resolved) == expected
 

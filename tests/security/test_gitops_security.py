@@ -270,27 +270,12 @@ def test_registry_resolves_workloads_and_sites_tilde_prefixes(
 
 
 def test_deployments_file_defaults_to_workloads_and_does_not_fallback(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, run_isolated_script_expr
 ):
     """Ensure DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml and fails closed without CONFIG_DIR/CORE_DIR fallback."""
-    import os
-    import subprocess
-    import sys
-
-    scripts_dir = str(Path(__file__).resolve().parents[2] / "scripts")
-    base_env = {
-        k: v
-        for k, v in os.environ.items()
-        if k not in {"HOMELAB_DEPLOYMENTS_FILE", "WORKLOADS_DIR", "SITES_DIR"}
-    }
-    base_env["HOME"] = str(tmp_path)
-    base_env["PYTHONPATH"] = scripts_dir
-
-    resolved_default = subprocess.check_output(
-        [sys.executable, "-c", "import gitops_dispatcher; print(gitops_dispatcher.DEPLOYMENTS_FILE)"],
-        env=base_env,
-        text=True,
-    ).strip()
+    resolved_default = run_isolated_script_expr(
+        "import gitops_dispatcher; print(gitops_dispatcher.DEPLOYMENTS_FILE)"
+    )
     expected_default = tmp_path / "Workloads" / "deployments.yaml"
     assert Path(resolved_default) == expected_default
 
@@ -310,12 +295,10 @@ def test_deployments_file_defaults_to_workloads_and_does_not_fallback(
 
     # WORKLOADS_DIR override when HOMELAB_DEPLOYMENTS_FILE is unset
     custom_workloads = tmp_path / "CustomWorkloads"
-    env_with_workloads = dict(base_env, WORKLOADS_DIR=str(custom_workloads))
-    resolved_override = subprocess.check_output(
-        [sys.executable, "-c", "import gitops_dispatcher; print(gitops_dispatcher.DEPLOYMENTS_FILE)"],
-        env=env_with_workloads,
-        text=True,
-    ).strip()
+    resolved_override = run_isolated_script_expr(
+        "import gitops_dispatcher; print(gitops_dispatcher.DEPLOYMENTS_FILE)",
+        extra_env={"WORKLOADS_DIR": str(custom_workloads)},
+    )
     assert Path(resolved_override) == custom_workloads / "deployments.yaml"
 
 
