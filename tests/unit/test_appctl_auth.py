@@ -495,30 +495,42 @@ def test_rbac_viewer_denied_on_sensitive_reads():
 
 
 def test_default_deployments_file_resolves_to_workloads_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_isolated_script_expr
+    tmp_path: Path, run_isolated_script_expr
 ):
-    """DEFAULT_DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml and fails closed when absent."""
-    import appctl_auth
-
+    """DEFAULT_DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml."""
     resolved = run_isolated_script_expr(
         "import appctl_auth; print(appctl_auth.DEFAULT_DEPLOYMENTS_FILE)"
     )
-    expected = tmp_path / "Workloads" / "deployments.yaml"
-    assert Path(resolved) == expected
+    assert Path(resolved) == tmp_path / "Workloads" / "deployments.yaml"
 
-    # Absent ~/Workloads/deployments.yaml must fail closed (no CORE_DIR fallback)
+
+def test_load_admitted_workloads_fails_closed_when_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Absent ~/Workloads/deployments.yaml fails closed (empty set, no CORE_DIR fallback)."""
+    import appctl_auth
+
     monkeypatch.delenv("HOMELAB_DEPLOYMENTS_FILE", raising=False)
     monkeypatch.delenv("WORKLOADS_DIR", raising=False)
     monkeypatch.delenv("SITES_DIR", raising=False)
-    monkeypatch.setattr(appctl_auth, "DEFAULT_DEPLOYMENTS_FILE", expected)
+    monkeypatch.setattr(
+        appctl_auth, "DEFAULT_DEPLOYMENTS_FILE", tmp_path / "Workloads" / "deployments.yaml"
+    )
     assert appctl_auth.load_admitted_workloads() == set()
 
-    # WORKLOADS_DIR takes precedence when HOMELAB_DEPLOYMENTS_FILE is unset
+
+def test_load_admitted_workloads_honors_workloads_dir_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """WORKLOADS_DIR takes precedence when HOMELAB_DEPLOYMENTS_FILE is unset."""
+    import appctl_auth
+
     custom_workloads = tmp_path / "CustomWorkloads"
     custom_workloads.mkdir()
     (custom_workloads / "deployments.yaml").write_text(
         "repositories:\n  custom_app:\n    path: ~/Workloads/custom_app\n",
         encoding="utf-8",
     )
+    monkeypatch.delenv("HOMELAB_DEPLOYMENTS_FILE", raising=False)
     monkeypatch.setenv("WORKLOADS_DIR", str(custom_workloads))
     assert appctl_auth.load_admitted_workloads() == {"custom_app"}

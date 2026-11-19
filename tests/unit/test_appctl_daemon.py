@@ -593,16 +593,20 @@ def test_gitops_dispatcher_delegates_to_daemon(daemon_env, monkeypatch):
         assert mock_sub.call_count >= 1
 
 
-def test_daemon_deployments_file_defaults_to_workloads_and_honors_override(
+def test_daemon_deployments_file_defaults_to_workloads(
     tmp_path: Path, run_isolated_script_expr
 ):
-    """DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml and honors WORKLOADS_DIR override."""
+    """DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml."""
     resolved_default = run_isolated_script_expr(
         "import appctl_daemon; print(appctl_daemon.DEPLOYMENTS_FILE)"
     )
     assert Path(resolved_default) == tmp_path / "Workloads" / "deployments.yaml"
 
-    # WORKLOADS_DIR override when HOMELAB_DEPLOYMENTS_FILE is unset
+
+def test_daemon_deployments_file_honors_workloads_dir_override(
+    tmp_path: Path, run_isolated_script_expr
+):
+    """DEPLOYMENTS_FILE honors WORKLOADS_DIR override when HOMELAB_DEPLOYMENTS_FILE is unset."""
     custom_workloads = tmp_path / "CustomWorkloads"
     resolved_override = run_isolated_script_expr(
         "import appctl_daemon; print(appctl_daemon.DEPLOYMENTS_FILE)",

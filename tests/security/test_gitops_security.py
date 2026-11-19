@@ -269,17 +269,20 @@ def test_registry_resolves_workloads_and_sites_tilde_prefixes(
     assert gitops_dispatcher.resolve_repository("valid") is None
 
 
-def test_deployments_file_defaults_to_workloads_and_does_not_fallback(
-    tmp_path: Path, monkeypatch, run_isolated_script_expr
+def test_deployments_file_defaults_to_workloads(
+    tmp_path: Path, run_isolated_script_expr
 ):
-    """Ensure DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml and fails closed without CONFIG_DIR/CORE_DIR fallback."""
+    """Ensure DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml."""
     resolved_default = run_isolated_script_expr(
         "import gitops_dispatcher; print(gitops_dispatcher.DEPLOYMENTS_FILE)"
     )
-    expected_default = tmp_path / "Workloads" / "deployments.yaml"
-    assert Path(resolved_default) == expected_default
+    assert Path(resolved_default) == tmp_path / "Workloads" / "deployments.yaml"
 
-    # Even if CONFIG_DIR/deployments.yaml exists, missing DEPLOYMENTS_FILE must fail closed
+
+def test_deployments_file_fails_closed_without_config_dir_fallback(
+    tmp_path: Path, monkeypatch
+):
+    """Ensure missing DEPLOYMENTS_FILE fails closed even when CONFIG_DIR/deployments.yaml exists."""
     config_dir = tmp_path / "config-fallback"
     config_dir.mkdir()
     (config_dir / "deployments.yaml").write_text(
@@ -289,11 +292,17 @@ def test_deployments_file_defaults_to_workloads_and_does_not_fallback(
         '    path: "~/Workloads/docs"\n',
         encoding="utf-8",
     )
-    monkeypatch.setattr(gitops_dispatcher, "DEPLOYMENTS_FILE", expected_default)
+    monkeypatch.setattr(
+        gitops_dispatcher, "DEPLOYMENTS_FILE", tmp_path / "Workloads" / "deployments.yaml"
+    )
     monkeypatch.setattr(gitops_dispatcher, "CONFIG_DIR", config_dir)
     assert gitops_dispatcher.get_trusted_repository_mapping() == {}
 
-    # WORKLOADS_DIR override when HOMELAB_DEPLOYMENTS_FILE is unset
+
+def test_deployments_file_honors_workloads_dir_override(
+    tmp_path: Path, run_isolated_script_expr
+):
+    """Ensure DEPLOYMENTS_FILE honors WORKLOADS_DIR override when HOMELAB_DEPLOYMENTS_FILE is unset."""
     custom_workloads = tmp_path / "CustomWorkloads"
     resolved_override = run_isolated_script_expr(
         "import gitops_dispatcher; print(gitops_dispatcher.DEPLOYMENTS_FILE)",
