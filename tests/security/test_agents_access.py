@@ -105,12 +105,14 @@ def test_socket_proxy_binds_loopback_only():
     assert "socket-proxy" in services, "socket-proxy service must exist"
 
     ports = services["socket-proxy"].get("ports", [])
+    assert isinstance(ports, list) and len(ports) > 0, (
+        "socket-proxy must declare non-empty ports list"
+    )
+    assert all(isinstance(p, str) and p.startswith("127.0.0.1:") for p in ports), (
+        f"Every socket-proxy port must bind strictly to 127.0.0.1, got: {ports!r}"
+    )
     assert "127.0.0.1:2375:2375" in ports, (
         "socket-proxy must bind 127.0.0.1:2375:2375"
-    )
-    assert "2375:2375" not in ports, "socket-proxy must not bind bare 2375:2375"
-    assert "0.0.0.0:2375:2375" not in ports, (
-        "socket-proxy must not bind 0.0.0.0:2375:2375"
     )
 
 
@@ -130,14 +132,10 @@ def test_nixos_agents_user_least_privilege():
     assert groups_match is not None, "users.users.agents must declare extraGroups"
     groups_text = groups_match.group(1)
 
-    assert '"homelab-operators"' in groups_text, (
-        "agents must belong to homelab-operators"
+    actual_groups = set(re.findall(r'"([^"]+)"', groups_text))
+    assert actual_groups == {"homelab-operators", "systemd-journal"}, (
+        f"agents extraGroups must be strictly {{'homelab-operators', 'systemd-journal'}}, got: {actual_groups!r}"
     )
-    assert '"systemd-journal"' in groups_text, (
-        "agents must belong to systemd-journal"
-    )
-    assert '"wheel"' not in groups_text, "agents must NOT belong to wheel"
-    assert '"docker"' not in groups_text, "agents must NOT belong to docker"
 
 
 def test_nixos_openssh_match_user_agents_hardening():
@@ -151,7 +149,7 @@ def test_nixos_openssh_match_user_agents_hardening():
     match_section = ssh_block[ssh_block.index("Match User agents") :]
 
     required_directives = [
-        r"ForceCommand\s+\S+",
+        r"ForceCommand\s+\S*agents-force-command\b",
         r"AllowTcpForwarding\s+no",
         r"X11Forwarding\s+no",
         r"AllowAgentForwarding\s+no",
@@ -238,6 +236,7 @@ def test_force_command_allows_read_only_commands(
         "docker ps > /tmp/pwn",
         "docker ps < /etc/passwd",
         "docker ps\nid",
+        "docker ps\rid",
         "docker ps 'traefik'",
         'docker ps "traefik"',
         "docker ps \\ id",
@@ -306,4 +305,34 @@ def test_force_command_rejects_disallowed_commands_and_subcommands(
     )
     assert not invocations_log.exists(), (
         f"Command stub should not have been executed for: {disallowed_command!r}"
+    )
+
+
+@pytest.mark.parametrize("subcmd", ["ps", "logs", "inspect"])
+@pytest.mark.parametrize(
+    "override_flag",
+    [
+        "-H unix:///var/run/docker.sock",
+        "-H=unix:///var/run/docker.sock",
+        "--host unix:///var/run/docker.sock",
+        "--host=unix:///var/run/docker.sock",
+        "--context default",
+        "--context=default",
+        "-c default",
+        "-c=default",
+        "--config /tmp",
+        "--config=/tmp",
+    ],
+)
+def test_force_command_rejects_post_subcommand_docker_override_flags(
+    tmp_path: Path, subcmd: str, override_flag: str
+):
+    """Verify Docker connection/context/config override flags are rejected after valid subcommands."""
+    command = f"docker {subcmd} {override_flag}"
+    proc, invocations_log = _run_force_command(command, tmp_path)
+    assert proc.returncode != 0, (
+        f"Docker override flag was unexpectedly allowed: {command!r}"
+    )
+    assert not invocations_log.exists(), (
+        f"Command stub should not have been executed for: {command!r}"
     )
