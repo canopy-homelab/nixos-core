@@ -44,6 +44,13 @@
         fi
       '';
     };
+
+    # Re-apply home-dir traverse ACL after `users` activation (chmod 0700 resets POSIX ACL mask::---)
+    system.activationScripts.homelabHomeAcl = lib.stringAfter [ "users" ] ''
+      if [ -d "/home/${config.homelab.operatorUser}" ]; then
+        ${pkgs.acl}/bin/setfacl -m u:homelab-appctl:x,g:homelab-operators:x,m::rx "/home/${config.homelab.operatorUser}"
+      fi
+    '';
     # Define the keys to decrypt from secrets.yaml
     sops.secrets = (lib.genAttrs [
       "dynu/api_key"
