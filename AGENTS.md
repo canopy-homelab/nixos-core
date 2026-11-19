@@ -67,7 +67,7 @@ docker compose config -q
 1. **Workload Manifests (`app.yaml`)**: Describe declarative workload identity, routing metadata, and deployment intent only. Never introduce arbitrary command execution, host filesystem paths, privileged flags, or Docker control capabilities into `app.yaml`.
 2. **GitOps Trust Boundary (`scripts/gitops_dispatcher.py`)**:
    - Webhook admission requires cryptographic authentication (HMAC-SHA256).
-   - Repository identity and filesystem paths must be resolved strictly through trusted Core configuration (`config/deployments.yaml`)—never directly from webhook payloads.
+   - Repository identity and filesystem paths must be resolved strictly through the trusted workloads registry (`~/Workloads/deployments.yaml` or `HOMELAB_DEPLOYMENTS_FILE`, templated by `config/deployments.yaml`)—never directly from webhook payloads.
    - Execution must remain allowlisted, serialized (`flock`), pre-validated by the Compose AST security checker, and free of shell interpolation (`shell=False`, no `eval`).
 3. **Docker & Privilege Isolation**:
    - `socket-proxy` is the **only** service permitted to mount `/var/run/docker.sock` (strictly `:ro`, read-only API capabilities only; `POST=0`, `DELETE=0`, `BUILD=0`, `EXEC=0`).

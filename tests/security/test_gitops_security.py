@@ -269,6 +269,48 @@ def test_registry_resolves_workloads_and_sites_tilde_prefixes(
     assert gitops_dispatcher.resolve_repository("valid") is None
 
 
+def test_deployments_file_defaults_to_workloads(
+    tmp_path: Path, run_isolated_script_expr
+):
+    """Ensure DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml."""
+    resolved_default = run_isolated_script_expr(
+        "import gitops_dispatcher; print(gitops_dispatcher.DEPLOYMENTS_FILE)"
+    )
+    assert Path(resolved_default) == tmp_path / "Workloads" / "deployments.yaml"
+
+
+def test_deployments_file_fails_closed_without_config_dir_fallback(
+    tmp_path: Path, monkeypatch
+):
+    """Ensure missing DEPLOYMENTS_FILE fails closed even when CONFIG_DIR/deployments.yaml exists."""
+    config_dir = tmp_path / "config-fallback"
+    config_dir.mkdir()
+    (config_dir / "deployments.yaml").write_text(
+        'schemaVersion: "1.0"\n'
+        "repositories:\n"
+        "  docs:\n"
+        '    path: "~/Workloads/docs"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        gitops_dispatcher, "DEPLOYMENTS_FILE", tmp_path / "Workloads" / "deployments.yaml"
+    )
+    monkeypatch.setattr(gitops_dispatcher, "CONFIG_DIR", config_dir)
+    assert gitops_dispatcher.get_trusted_repository_mapping() == {}
+
+
+def test_deployments_file_honors_workloads_dir_override(
+    tmp_path: Path, run_isolated_script_expr
+):
+    """Ensure DEPLOYMENTS_FILE honors WORKLOADS_DIR override when HOMELAB_DEPLOYMENTS_FILE is unset."""
+    custom_workloads = tmp_path / "CustomWorkloads"
+    resolved_override = run_isolated_script_expr(
+        "import gitops_dispatcher; print(gitops_dispatcher.DEPLOYMENTS_FILE)",
+        extra_env={"WORKLOADS_DIR": str(custom_workloads)},
+    )
+    assert Path(resolved_override) == custom_workloads / "deployments.yaml"
+
+
 def test_webhook_verification_valid_signature():
     """Ensure valid HMAC-SHA256 signature passes verification."""
     import hashlib

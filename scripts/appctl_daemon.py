@@ -64,7 +64,7 @@ WORKLOADS_DIR = Path(
 )
 SITES_DIR = WORKLOADS_DIR
 DEPLOYMENTS_FILE = Path(
-    os.environ.get("HOMELAB_DEPLOYMENTS_FILE", CORE_DIR / "config" / "deployments.yaml")
+    os.environ.get("HOMELAB_DEPLOYMENTS_FILE") or (WORKLOADS_DIR / "deployments.yaml")
 )
 
 DEFAULT_SOCKET_PATH = Path(

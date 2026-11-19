@@ -6,7 +6,7 @@ Implements the zero-trust authorization pipeline for homelab-appctl.service:
 - Unix domain socket SO_PEERCRED fallback to homelab-viewer for zero-friction local reads
 - Mandatory Bearer tokens for all network (HTTP) operations and all mutations / sensitive reads
 - 3-role RBAC enforcement (homelab-admin, homelab-operator, homelab-viewer)
-- Workload scope gating against config/deployments.yaml for homelab-operator
+- Workload scope gating against ~/Workloads/deployments.yaml (or HOMELAB_DEPLOYMENTS_FILE / WORKLOADS_DIR override) for homelab-operator
 """
 
 from __future__ import annotations
@@ -34,7 +34,12 @@ except ImportError:
 
 DEFAULT_TOKENS_FILE = Path("/run/secrets/appctl/tokens.json")
 DEFAULT_DEPLOYMENTS_FILE = (
-    Path(__file__).resolve().parent.parent / "config" / "deployments.yaml"
+    Path(
+        os.environ.get("WORKLOADS_DIR")
+        or os.environ.get("SITES_DIR")
+        or os.path.expanduser("~/Workloads")
+    )
+    / "deployments.yaml"
 )
 
 CORE_TARGETS: frozenset[str] = frozenset(
@@ -222,13 +227,18 @@ class TokenStore:
 
 def load_admitted_workloads(deployments_path: Path | str | None = None) -> set[str]:
     """
-    Load admitted repository names and aliases from config/deployments.yaml.
+    Load admitted repository names and aliases from ~/Workloads/deployments.yaml
+    (or HOMELAB_DEPLOYMENTS_FILE / WORKLOADS_DIR override).
     Fails closed (empty set) if registry is missing or malformed.
     """
     if deployments_path is not None:
         reg_file = Path(deployments_path)
-    elif "HOMELAB_DEPLOYMENTS_FILE" in os.environ:
-        reg_file = Path(os.environ["HOMELAB_DEPLOYMENTS_FILE"])
+    elif env_deploy := os.environ.get("HOMELAB_DEPLOYMENTS_FILE"):
+        reg_file = Path(env_deploy)
+    elif env_workloads := (
+        os.environ.get("WORKLOADS_DIR") or os.environ.get("SITES_DIR")
+    ):
+        reg_file = Path(env_workloads) / "deployments.yaml"
     else:
         reg_file = DEFAULT_DEPLOYMENTS_FILE
 

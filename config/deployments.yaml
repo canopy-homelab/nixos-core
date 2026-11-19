@@ -1,48 +1,18 @@
-# Core Authoritative Repository Identity Registry
-# Governs admitted continuous deployment targets for GitOps webhook execution.
+# Example Repository Identity Registry Template
+# Live production deployments are configured in ~/Workloads/deployments.yaml
+# (or overridden via the HOMELAB_DEPLOYMENTS_FILE environment variable).
+#
 # Owns: repository identity, canonical filesystem path, and aliases.
-# Enforces: strict path containment within ~/Workloads.
+# Enforces: strict path containment within ~/Workloads (WORKLOADS_DIR).
 
 schemaVersion: "1.0"
 repositories:
-  snappymail:
-    path: "~/Workloads/snappymail"
+  example-app:
+    path: "~/Workloads/example-app"
     aliases:
-      - "homelab-snappymail"
-      - "mail"
-      - "webmail"
-  gitea:
-    path: "~/Workloads/homelab-gitea"
+      - "example"
+      - "homelab-example"
+  example-docs:
+    path: "~/Workloads/example-docs"
     aliases:
-      - "homelab-gitea"
-      - "git"
-  jellyfin:
-    path: "~/Workloads/homelab-jellyfin"
-    aliases:
-      - "homelab-jellyfin"
-      - "media"
-  courses:
-    path: "~/Workloads/courses"
-    aliases:
-      - "homelab-courses"
-  bdinvite:
-    path: "~/Workloads/homelab-bdinvite"
-    aliases:
-      - "homelab-bdinvite"
-      - "birthday"
-  landing:
-    path: "~/Workloads/homelab-landing"
-    aliases:
-      - "homelab-landing"
-  mermaid:
-    path: "~/Workloads/homelab-mermaid"
-    aliases:
-      - "homelab-mermaid"
-  excalidraw:
-    path: "~/Workloads/homelab-excalidraw"
-    aliases:
-      - "homelab-excalidraw"
-  houston:
-    path: "~/Workloads/homelab-houston"
-    aliases:
-      - "homelab-houston"
+      - "docs"

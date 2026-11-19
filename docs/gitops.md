@@ -27,7 +27,7 @@ The GitOps engine is invoked via the `homelab-gitops.service` systemd unit runni
                                  ▼
          ┌───────────────────────────────────────────────┐
          │ 3. Authoritative Registry Resolution          │
-         │    Maps names via Core/config/deployments.yaml│
+         │    Maps names via ~/Workloads/deployments.yaml│
          │    Fails closed; zero dynamic discovery on host│
          └───────────────────────┬───────────────────────┘
                                  │
@@ -74,7 +74,7 @@ The GitOps engine is invoked via the `homelab-gitops.service` systemd unit runni
 
 ### C. Authoritative Repository Registry (`deployments.yaml`)
 * Webhook payloads identify targets strictly by logical name (e.g. `docs`, `homelab-docs`), never by raw filesystem path.
-* `Core/config/deployments.yaml` is the **sole admission authority** for GitOps workloads.
+* `~/Workloads/deployments.yaml` (configured via `HOMELAB_DEPLOYMENTS_FILE`, with `Core/config/deployments.yaml` serving as the example template) is the **sole admission authority** for GitOps workloads.
 * **No Dynamic Discovery**: Scanning `~/Sites` dynamically is strictly prohibited. An unapproved directory created on disk cannot receive webhook deployment rights merely by providing an `app.yaml`.
 * **Fail-Closed Guarantee**: If `deployments.yaml` is missing, unreadable, or malformed, the dispatcher fails closed and admits zero repositories.
 * **Input Validation**: Names must match `^[a-zA-Z0-9][a-zA-Z0-9._-]*$`. Slashes, backslashes, and path traversal sequences (`..`) are rejected.

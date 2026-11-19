@@ -26,7 +26,7 @@ Repository-level architectural decisions are recorded in `docs/decisions/` using
   1. **Tier 2 Rename (`~/Sites` -> `~/Workloads`)**: Canonical Tier 2 deployment root is `~/Workloads`, with `WORKLOADS_DIR` -> `SITES_DIR` environment fallback.
   2. **Unified `canopy-workloads` Monorepo**: Tier 2 workload manifests (`app.yaml`, `docker-compose.yml`) consolidate under `~/Workloads/<app>/`, supporting hybrid per-app `.git` checkouts during migration.
   3. **Mandatory State Isolation**: All mutable application data resides strictly under `~/var/lib/homelab/<app>/` (or named Docker volumes), never inside `~/Workloads`.
-  4. **Core Registry & Safe Directory Containment**: `config/deployments.yaml` resolves admitted workloads within `WORKLOADS_DIR`; NixOS `safe.directory` includes `~/Workloads` and `~/Workloads/*`.
+  4. **Workloads Registry & Safe Directory Containment**: `~/Workloads/deployments.yaml` (templated by `config/deployments.yaml`) resolves admitted workloads within `WORKLOADS_DIR`; NixOS `safe.directory` includes `~/Workloads` and `~/Workloads/*`.
 
 ### [ADR-0003: Centralized Runtime Validation & Serialization via Pydantic v2](0003-pydantic-v2-runtime-validation.md)
 * **Canonical Document**: [`0003-pydantic-v2-runtime-validation.md`](0003-pydantic-v2-runtime-validation.md)

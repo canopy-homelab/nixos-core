@@ -591,3 +591,55 @@ def test_gitops_dispatcher_delegates_to_daemon(daemon_env, monkeypatch):
         )
         assert success is True
         assert mock_sub.call_count >= 1
+
+
+def test_daemon_deployments_file_defaults_to_workloads(
+    tmp_path: Path, run_isolated_script_expr
+):
+    """DEPLOYMENTS_FILE defaults to ~/Workloads/deployments.yaml."""
+    resolved_default = run_isolated_script_expr(
+        "import appctl_daemon; print(appctl_daemon.DEPLOYMENTS_FILE)"
+    )
+    assert Path(resolved_default) == tmp_path / "Workloads" / "deployments.yaml"
+
+
+def test_daemon_deployments_file_honors_workloads_dir_override(
+    tmp_path: Path, run_isolated_script_expr
+):
+    """DEPLOYMENTS_FILE honors WORKLOADS_DIR override when HOMELAB_DEPLOYMENTS_FILE is unset."""
+    custom_workloads = tmp_path / "CustomWorkloads"
+    resolved_override = run_isolated_script_expr(
+        "import appctl_daemon; print(appctl_daemon.DEPLOYMENTS_FILE)",
+        extra_env={"WORKLOADS_DIR": str(custom_workloads)},
+    )
+    assert Path(resolved_override) == custom_workloads / "deployments.yaml"
+
+
+def test_daemon_operator_fails_closed_when_deployments_file_absent(
+    daemon_env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """homelab-operator fails closed (403 ERR_PERMISSION_DENIED) when ~/Workloads/deployments.yaml is absent."""
+    import appctl_auth
+
+    # When HOMELAB_DEPLOYMENTS_FILE is unset and ~/Workloads/deployments.yaml is absent,
+    # homelab-operator must be denied (403) without falling back to CORE_DIR/config/deployments.yaml.
+    monkeypatch.delenv("HOMELAB_DEPLOYMENTS_FILE", raising=False)
+    monkeypatch.delenv("WORKLOADS_DIR", raising=False)
+    monkeypatch.delenv("SITES_DIR", raising=False)
+    monkeypatch.setattr(
+        appctl_auth,
+        "DEFAULT_DEPLOYMENTS_FILE",
+        tmp_path / "empty-home" / "Workloads" / "deployments.yaml",
+    )
+    deploy_req = OperationRequest(
+        operation=OperationType.WORKLOAD_DEPLOY, target="docs"
+    )
+    resp = send_daemon_request(
+        endpoint=daemon_env.socket_path,
+        operation_request=deploy_req,
+        token=OPERATOR_SECRET,
+    )
+    assert resp.success is False
+    assert resp.error is not None
+    assert resp.error.code == ErrorCode.ERR_PERMISSION_DENIED
+    assert resp.error.code.http_status == 403
