@@ -260,7 +260,7 @@ def get_trusted_repository_mapping() -> dict[str, Path]:
     """
     Build authoritative mapping of logical repository identities to local paths.
     Webhook payloads can only select repositories defined in this mapping.
-    Core Authoritative Registry (deployments.yaml) is the sole admission authority.
+    Workloads admission registry (~/Workloads/deployments.yaml, templated by config/deployments.yaml) is the sole admission authority.
     Fails closed if the registry is missing, unreadable, or malformed.
     """
     mapping: dict[str, Path] = {}

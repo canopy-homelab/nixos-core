@@ -6,7 +6,7 @@ Implements the zero-trust authorization pipeline for homelab-appctl.service:
 - Unix domain socket SO_PEERCRED fallback to homelab-viewer for zero-friction local reads
 - Mandatory Bearer tokens for all network (HTTP) operations and all mutations / sensitive reads
 - 3-role RBAC enforcement (homelab-admin, homelab-operator, homelab-viewer)
-- Workload scope gating against config/deployments.yaml for homelab-operator
+- Workload scope gating against ~/Workloads/deployments.yaml (or HOMELAB_DEPLOYMENTS_FILE / WORKLOADS_DIR override) for homelab-operator
 """
 
 from __future__ import annotations
@@ -227,7 +227,8 @@ class TokenStore:
 
 def load_admitted_workloads(deployments_path: Path | str | None = None) -> set[str]:
     """
-    Load admitted repository names and aliases from config/deployments.yaml.
+    Load admitted repository names and aliases from ~/Workloads/deployments.yaml
+    (or HOMELAB_DEPLOYMENTS_FILE / WORKLOADS_DIR override).
     Fails closed (empty set) if registry is missing or malformed.
     """
     if deployments_path is not None:
