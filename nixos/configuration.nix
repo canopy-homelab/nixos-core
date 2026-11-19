@@ -68,7 +68,7 @@
   networking.hostName = "server";
   networking.networkmanager.enable = true;
 
-  # ── User account ─────────────────────────────────────────────────────────────
+  # ── User accounts ────────────────────────────────────────────────────────────
   users.users.${config.homelab.operatorUser} = {
     isNormalUser = true;
     description = "Primary server administrator";
@@ -83,11 +83,39 @@
     ];
   };
 
+  users.users.agents = {
+    isNormalUser = true;
+    description = "Read-only agent inspection user";
+    openssh.authorizedKeys.keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE1pxTdygG5696q0jT7clfJZWtx48ugfUjpzvkHzovVd canopy-agents"
+    ];
+    extraGroups = [
+      "homelab-operators" # read-only access via /run/homelab/appctl.sock
+      "systemd-journal"   # read-only access to journalctl
+    ];
+  };
+
   # ── SSH ──────────────────────────────────────────────────────────────────────
-  services.openssh = {
+  services.openssh = let
+    agentsForceCommand = pkgs.writeShellScriptBin "agents-force-command" ''
+      export CORE_DIR="''${CORE_DIR:-/home/${config.homelab.operatorUser}/Core}"
+      export WORKLOADS_DIR="''${WORKLOADS_DIR:-/home/${config.homelab.operatorUser}/Workloads}"
+      export DOCKER_HOST="''${DOCKER_HOST:-tcp://127.0.0.1:2375}"
+      exec ${pkgs.bash}/bin/bash ${./scripts/agents-force-command.sh} "$@"
+    '';
+  in {
     enable = true;
     ports = [ 22 ];
     settings.PermitRootLogin = "no";
+    extraConfig = ''
+      Match User agents
+        ForceCommand ${agentsForceCommand}/bin/agents-force-command
+        AllowTcpForwarding no
+        X11Forwarding no
+        AllowAgentForwarding no
+        PermitTTY no
+        PasswordAuthentication no
+    '';
   };
 
   # ── Virtualisation ───────────────────────────────────────────────────────────
