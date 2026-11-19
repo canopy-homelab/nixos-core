@@ -587,3 +587,51 @@ If unexpected service degradation occurs during the cutover:
 
 3. **Log rollback reason**:
    Record the diagnostic failure logs in `journalctl -xe` and investigate before attempting another cutover window.
+
+---
+
+## 8. Read-Only Agent Inspection (`agents` SSH Identity)
+
+For automated troubleshooting and agentic workflows, use the dedicated `agents` SSH user instead of the `operator` account.
+
+### Workstation Setup
+1. Generate a dedicated Ed25519 keypair on the workstation (if not already provisioned during setup):
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/canopy_agents -C "canopy-agents"
+   ```
+2. Register the `.pub` key in `users.users.agents.openssh.authorizedKeys.keys` (`nixos/configuration.nix`) and rebuild NixOS.
+3. Add a host entry to `~/.ssh/config` (using your server hostname or `server.example.test`):
+   ```sshconfig
+   Host server-agents
+     HostName <server-host>
+     User agents
+     IdentityFile ~/.ssh/canopy_agents
+     IdentitiesOnly yes
+   ```
+
+### Safe Read-Only Usage Examples
+Commands are passed non-interactively over SSH and validated by the `ForceCommand` wrapper:
+```bash
+# Container status and logs (via read-only socket-proxy)
+ssh server-agents "docker ps"
+ssh server-agents "docker logs --tail 50 <container>"
+ssh server-agents "docker inspect <container>"
+
+# Platform & workload status
+ssh server-agents "appctl list --core"
+ssh server-agents "appctl status"
+ssh server-agents "appctl info <app>"
+
+# Systemd service logs
+ssh server-agents "journalctl -u homelab-appctl -n 5"
+```
+
+### Security Boundaries & Allowlist
+The `agents` account is constrained at both the OS and OpenSSH layers (`nixos/configuration.nix` and `nixos/scripts/agents-force-command.sh`):
+- **Allowlisted commands only (`Match User agents` `ForceCommand`)**:
+  - `docker`: `ps`, `logs`, `inspect` only (routed to `DOCKER_HOST=tcp://127.0.0.1:2375`; `-H`, `--host`, `--context`, `-c`, and `--config` overrides are rejected).
+  - `appctl`: `list`, `status`, `info`, `logs`, `ssl`, `health`, `resolve` only.
+  - `journalctl`: read-only queries only (mutating flags such as `--flush`, `--rotate`, `--vacuum-*`, `--relinquish-var`, `--sync`, `--setup-keys`, and `--update-catalog` are rejected).
+  - Empty commands, control characters, and shell metacharacters (`;`, `&`, `|`, `` ` ``, `$`, `(`, `)`, `<`, `>`, `\`, `'`, `"`) are rejected.
+- **No privilege escalation or interactive shell**: `agents` is not in `wheel` or `docker`, has no `sudo` access, and OpenSSH enforces `PermitTTY no`, `PasswordAuthentication no`, `AllowTcpForwarding no`, `X11Forwarding no`, and `AllowAgentForwarding no`.
+- **No host state write access**: `agents` has no write permissions to `~/Core`, `~/Workloads`, or `~/var/lib/homelab/*`.

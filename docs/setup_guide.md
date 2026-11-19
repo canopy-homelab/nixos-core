@@ -113,6 +113,34 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 2. Authenticate using `admin` and the password configured in `nixos/secrets.yaml` (`lldap/admin_password`).
 3. Create standard user accounts and assign them to required groups.
 
+### Step 8: Provision Read-Only Agent SSH Access (`agents`)
+The `agents` user provides a restricted, read-only SSH identity for automated or agentic diagnostics without granting `sudo`, `docker` group membership, or write access to host state.
+
+1. **Generate a dedicated Ed25519 SSH keypair** on your workstation:
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/canopy_agents -C "canopy-agents"
+   ```
+2. **Wire the public key into NixOS**:
+   Add the contents of `~/.ssh/canopy_agents.pub` to `users.users.agents.openssh.authorizedKeys.keys` in `nixos/configuration.nix` and apply the configuration on the server:
+   ```bash
+   sudo nixos-rebuild switch --flake path:/home/operator/Core#server --impure
+   ```
+   `nixos/configuration.nix` assigns `agents` only to `homelab-operators` (for read-only `appctl` socket queries) and `systemd-journal` (for `journalctl`), and enforces `Match User agents` with `ForceCommand` (`nixos/scripts/agents-force-command.sh`), `PermitTTY no`, `PasswordAuthentication no`, and forwarding disabled.
+3. **Configure workstation `~/.ssh/config`** (replace `<server-host>` with your host or `server.example.test`):
+   ```sshconfig
+   Host server-agents
+     HostName <server-host>
+     User agents
+     IdentityFile ~/.ssh/canopy_agents
+     IdentitiesOnly yes
+   ```
+4. **Verify read-only inspection** from the workstation:
+   ```bash
+   ssh server-agents "docker ps"
+   ssh server-agents "appctl list --core"
+   ssh server-agents "journalctl -u homelab-appctl -n 5"
+   ```
+
 ---
 
 ## 3. Onboarding a New Application Workload
