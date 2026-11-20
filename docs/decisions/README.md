@@ -10,6 +10,7 @@ Repository-level architectural decisions are recorded in `docs/decisions/` using
 
 | Decision Record | Status | Date | Scope & One-Line Purpose |
 | :--- | :--- | :--- | :--- |
+| [**ADR-0005: Host-Granted Workload Capabilities**](0005-workload-capability-grants.md) | `accepted` | 2026-11-20 | Amends ADR-0002 to introduce `homelab.workloadGrants` (`/etc/homelab/grants.json`) and `nixos/instance.example.nix` so NixOS hosts explicitly authorize `devices`, `groups`, `readOnlyPaths`, and `hostNetwork` per workload. |
 | [**ADR-0004: Unified ~/Workloads Monorepo & State Isolation**](0004-unified-workloads-monorepo.md) | `accepted` | 2026-11-16 | Amends ADR-0001 to adopt the unified `~/Workloads` Tier 2 monorepo (`canopy-workloads`), rename `~/Sites` to `~/Workloads` with `WORKLOADS_DIR` fallback, and enforce `~/var/lib/homelab/<app>/` state isolation. |
 | [**ADR-0003: Centralized Runtime Validation & Serialization via Pydantic v2**](0003-pydantic-v2-runtime-validation.md) | `accepted` | 2026-10-15 | Adopts Pydantic v2 as the single runtime schema and validation authority across workload manifests and daemon API to enforce fail-closed type safety, strict schema-based boundaries, and secret-safe serialization. |
 | [**ADR-0002: Homelab Operational Control Plane & Deployment Model Architecture**](0002-appctl-control-plane-architecture.md) | `accepted` | 2026-10-07 | Establishes `homelab-appctl.service` as the central operational control plane daemon, one logical command API (`POST /v1/operations`) across dual transports (UDS and HTTP), mandatory token auth with UDS `SO_PEERCRED` viewer fallback, dedicated service isolation, fail-closed audit logging, GitOps worker unification, and deterministic Git-backed declarative deployment state. |
@@ -18,6 +19,15 @@ Repository-level architectural decisions are recorded in `docs/decisions/` using
 ---
 
 ## 🧭 Summaries of Governing Decisions
+
+### [ADR-0005: Host-Granted Workload Capabilities ("Compose Requests, Nix Grants")](0005-workload-capability-grants.md)
+* **Canonical Document**: [`0005-workload-capability-grants.md`](0005-workload-capability-grants.md)
+* **Status**: `accepted` (Active — Amends ADR-0002)
+* **Core Commitments**:
+  1. **Typed Host Grant Schema (`homelab.workloadGrants`)**: NixOS exposes per-workload `devices`, `groups`, `readOnlyPaths`, and `hostNetwork` grants while keeping `privileged: true`, `docker.sock`, and `cap_add` permanently forbidden.
+  2. **Immutable Host Projection (`/etc/homelab/grants.json`)**: Projected root-owned at rebuild time; absent file defaults to zero grants, malformed file fails closed.
+  3. **Exact-Match Pre-Flight Enforcement**: `validate_compose_security()` allows requested capabilities only when canonically matched against the workload's Nix grant (and `:ro` for `readOnlyPaths`).
+  4. **Tracked Instance Template (`nixos/instance.example.nix`)**: Documents `homelab.domain`, `homelab.operatorUser`, and `homelab.workloadGrants` for `/etc/nixos/homelab-instance.nix`.
 
 ### [ADR-0004: Unified ~/Workloads Monorepo & State Isolation](0004-unified-workloads-monorepo.md)
 * **Canonical Document**: [`0004-unified-workloads-monorepo.md`](0004-unified-workloads-monorepo.md)
