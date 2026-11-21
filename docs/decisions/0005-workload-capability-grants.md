@@ -11,16 +11,16 @@ amends: 0002-appctl-control-plane-architecture.md
 
 ## Context and Problem Statement
 
-Under [ADR-0002](0002-appctl-control-plane-architecture.md) (`DEC-04`, `DEC-05`) and [ADR-0004](0004-unified-workloads-monorepo.md), `validate_compose_security()` in `scripts/gitops_dispatcher.py` enforces a uniform deny-all pre-flight policy on Tier 2 workload `docker-compose.yml` files:
+Under [ADR-0001](0001-3tier-architecture-and-provenance.md), [ADR-0002](0002-appctl-control-plane-architecture.md) (`DEC-04`, `DEC-05`), and [ADR-0004](0004-unified-workloads-monorepo.md), `validate_compose_security()` in `scripts/gitops_dispatcher.py` enforces a uniform deny-all pre-flight policy on Tier 2 workload `docker-compose.yml` files:
 
 * All `devices:` mounts are unconditionally blocked.
 * All host bind mounts outside `~/Workloads/<app>` and `~/var/lib/homelab/<app>` are blocked.
 * All host namespace sharing (`network_mode: host`, etc.) is blocked.
 
-While this prevents a Tier 2 `git push` from escalating privileges on the host, it creates real friction for legitimate single-operator workloads:
+While this prevents a Tier 2 `git push` from escalating privileges on the host, it creates real friction for legitimate single-operator capability classes:
 
-1. **Hardware Acceleration & Media Access (`jellyfin`)**: Using an integrated GPU (`/dev/dri`) for VAAPI transcoding requires mounting host device nodes, passing supplementary groups (`group_add: ["303"]` / `render`), and reading a dedicated media partition (`/media:ro`). Currently, `devices:` and arbitrary bind mounts are completely blocked, while `group_add:` is unconstrained (risking arbitrary host GID elevation to groups like `docker` or `wheel` unless strictly governed).
-2. **LAN Broadcast / Peer Services (e.g., `lg-smtv-mcp`)**: Workloads that send Wake-on-LAN broadcasts or discover LAN peers may struggle across Docker bridge boundaries, prompting requests for `network_mode: host`. However, blanket host networking collapses network namespace isolation, exposing loopback control services (such as `homelab-appctl.service` on `127.0.0.1:9001`) and bypassing proxy network segmentation.
+1. **Hardware-Accelerated & External-Storage Workloads**: Media transcoding or compute workloads requiring an integrated GPU (`/dev/dri`) must mount host device nodes, pass a supplementary device group (such as `render` / GID `303`), and read an external read-only storage partition (`/media:ro`). Currently, `devices:` and external bind mounts are completely blocked, while `group_add:` is unconstrained (risking arbitrary host GID elevation to groups like `docker` or `wheel` unless strictly governed).
+2. **LAN Broadcast / Peer-Discovery Services**: Workloads that send Wake-on-LAN magic packets or discover LAN peers struggle across Docker bridge boundaries, prompting requests for `network_mode: host`. However, blanket host networking collapses network namespace isolation, exposing loopback control services (such as `homelab-appctl.service` on `127.0.0.1:9001`) and bypassing proxy network segmentation.
 3. **Host-Agnostic Core Boundary**: Hardcoding `/dev/dri`, `/media`, or specific workload names inside `nixos-core` violates platform genericism and couples Core to one machine's hardware and app catalog.
 
 The central architectural question is: **How should Canopy NixOS Core permit hardware devices, supplementary groups, and external read-only storage paths for specific workloads without hardcoding personal infrastructure into `nixos-core` or weakening the Tier 2 -> Tier 3 trust boundary?**
@@ -56,19 +56,19 @@ This ADR formally amends [ADR-0002](0002-appctl-control-plane-architecture.md) (
    * `privileged: true`, `/var/run/docker.sock`, `cap_add`, and host namespaces (`pid`, `ipc`, `uts`, `userns_mode`, `network_mode: host`) remain permanently prohibited and are not grantable.
 
 2. **Immutable Host Projection (`/etc/homelab/grants.json`)**:
-   * NixOS generates `/etc/homelab/grants.json` (root-owned, readable by `homelab-appctl` and `homelab-gitops`, configurable via `HOMELAB_GRANTS_FILE` for testing).
+   * NixOS generates `/etc/homelab/grants.json` (`root`-owned, group-owned by `homelab-operators` with mode `0640`, granting read access to both `homelab-appctl` and `operator` without POSIX ACLs; configurable via `HOMELAB_GRANTS_FILE` for testing).
    * If the grants file is absent, `validate_compose_security()` defaults to zero grants. If present but malformed, validation fails closed.
 
 3. **Exact-Match Pre-Flight Enforcement**:
    * Every capability requested in `<app>/docker-compose.yml` must match an explicit grant for `<app>` in `/etc/homelab/grants.json`:
      * `devices` entries must have their host path resolve canonically strictly within the granted device node or directory, strictly disallowing directory traversal (`..`) or symlink escapes.
-     * `groups` entries must match allowlisted GIDs or group names granted to that specific workload.
+     * `groups` entries are canonicalized bidirectionally between group names and integer GIDs via the host group database (so a grant of `"render"` or `"303"` accepts either representation in `group_add`, while unknown or ungranted groups fail closed).
      * `readOnlyPaths` grants permit mounts **only** when `:ro` mode is specified and the canonical host path resolves strictly within the granted directory.
    * *Trade-off (Host Path Coupling)*: Workload Compose definitions declare physical host paths matching host grants; logical capability aliasing via environment variable injection remains an optional future refinement.
 
 4. **Tracked Instance Template (`nixos/instance.example.nix`)**:
    * `nixos-core` tracks `nixos/instance.example.nix` documenting `homelab.domain`, `homelab.operatorUser`, and `homelab.workloadGrants`.
-   * Live hosts keep their concrete configuration in `/etc/nixos/homelab-instance.nix` (or gitignored `nixos/instance.nix`) without build-time file translation between the two.
+   * Live hosts keep their concrete configuration in `/etc/nixos/homelab-instance.nix` (loaded via `--impure` flake evaluation) or gitignored `nixos/instance.nix` without build-time file translation between the two.
 
 ## Pros and Cons of the Options
 
