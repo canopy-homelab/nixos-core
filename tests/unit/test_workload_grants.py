@@ -72,7 +72,7 @@ def test_workload_grant_rejects_relative_and_traversal_paths(bad_path: str) -> N
         WorkloadGrant(readOnlyPaths=[bad_path])
 
 
-def test_grants_registry_rejects_extra_fields_and_bad_schema_version() -> None:
+def test_grants_registry_rejects_extra_fields() -> None:
     with pytest.raises(ValidationError):
         GrantsRegistry.model_validate(
             {
@@ -80,6 +80,9 @@ def test_grants_registry_rejects_extra_fields_and_bad_schema_version() -> None:
                 "workloads": {"app": {"devices": [], "extra_field": True}},
             }
         )
+
+
+def test_grants_registry_rejects_bad_schema_version() -> None:
     with pytest.raises(ValidationError):
         GrantsRegistry.model_validate({"schemaVersion": "2.0", "workloads": {}})
 
@@ -115,13 +118,12 @@ def test_load_workload_grants_verify_permissions_rejects_symlink(tmp_path: Path)
         load_workload_grants(link_file, verify_permissions=True)
 
 
-def test_load_workload_grants_verify_permissions_rejects_non_root_and_writable(
+def test_load_workload_grants_verify_permissions_rejects_non_root_owner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     grants_path = tmp_path / "grants.json"
     grants_path.write_text('{"schemaVersion": "1.0", "workloads": {}}', encoding="utf-8")
 
-    # Non-root owner
     monkeypatch.setattr(
         os,
         "lstat",
@@ -130,7 +132,13 @@ def test_load_workload_grants_verify_permissions_rejects_non_root_and_writable(
     with pytest.raises(WorkloadGrantsError, match="root"):
         load_workload_grants(grants_path, verify_permissions=True)
 
-    # Group/world writable even if root-owned
+
+def test_load_workload_grants_verify_permissions_rejects_writable_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grants_path = tmp_path / "grants.json"
+    grants_path.write_text('{"schemaVersion": "1.0", "workloads": {}}', encoding="utf-8")
+
     monkeypatch.setattr(
         os,
         "lstat",
@@ -139,7 +147,13 @@ def test_load_workload_grants_verify_permissions_rejects_non_root_and_writable(
     with pytest.raises(WorkloadGrantsError, match="writable"):
         load_workload_grants(grants_path, verify_permissions=True)
 
-    # Valid root-owned 0640 regular file
+
+def test_load_workload_grants_verify_permissions_accepts_root_0640(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grants_path = tmp_path / "grants.json"
+    grants_path.write_text('{"schemaVersion": "1.0", "workloads": {}}', encoding="utf-8")
+
     monkeypatch.setattr(
         os,
         "lstat",

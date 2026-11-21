@@ -1684,10 +1684,10 @@ def test_operational_router_workload_update_pulls_monorepo_when_parent_git_exist
         assert compose_cwds and all(cwd == mock_workload_dir for cwd in compose_cwds)
 
 
-def test_operational_router_returns_err_capability_not_granted_and_passes_resolved_env(
+def test_operational_router_returns_err_capability_not_granted(
     tmp_path: Path, admin_principal: Principal, monkeypatch
 ):
-    """Ensure appctl_router passes assembled env to validate_compose_security and maps denials to ERR_CAPABILITY_NOT_GRANTED."""
+    """Ensure appctl_router maps capability-grant denials to ERR_CAPABILITY_NOT_GRANTED."""
     sites_dir = tmp_path / "Workloads"
     app_dir = sites_dir / "media"
     app_dir.mkdir(parents=True)
@@ -1721,14 +1721,33 @@ def test_operational_router_returns_err_capability_not_granted_and_passes_resolv
         {"operation": "workload.deploy", "target": "media"}
     )
 
-    # 1. Without grant -> ERR_CAPABILITY_NOT_GRANTED
     with patch("appctl_router.resolve_app", return_value=mock_app):
         resp = router.dispatch(req, admin_principal)
         assert resp.success is False
         assert resp.error is not None
         assert resp.error.code == ErrorCode.ERR_CAPABILITY_NOT_GRANTED
 
-    # 2. With grant -> resolved_env interpolates ${MEDIA_PATH} and deploy succeeds
+
+def test_operational_router_passes_resolved_env_to_capability_validation(
+    tmp_path: Path, admin_principal: Principal, monkeypatch
+):
+    """Ensure appctl_router passes assembled 6-layer env into validate_compose_security()."""
+    sites_dir = tmp_path / "Workloads"
+    app_dir = sites_dir / "media"
+    app_dir.mkdir(parents=True)
+    media_dir = tmp_path / "mnt" / "media"
+    media_dir.mkdir(parents=True)
+
+    (app_dir / "app.yaml").write_text(
+        f"name: media\ndomain: media.example.test\nenv:\n  MEDIA_PATH: '{media_dir}'\n",
+        encoding="utf-8",
+    )
+    (app_dir / "docker-compose.yml").write_text(
+        "services:\n  app:\n    image: alpine\n    volumes:\n      - \"${MEDIA_PATH}:/media:ro\"\n",
+        encoding="utf-8",
+    )
+
+    grants_file = tmp_path / "grants.json"
     grants_file.write_text(
         json.dumps(
             {
@@ -1738,6 +1757,22 @@ def test_operational_router_returns_err_capability_not_granted_and_passes_resolv
         ),
         encoding="utf-8",
     )
+    monkeypatch.setenv("HOMELAB_GRANTS_FILE", str(grants_file))
+    monkeypatch.setenv("HOMELAB_DOMAIN", "example.test")
+
+    mock_app = MagicMock()
+    mock_app.name = "media"
+    mock_app.dir_path = str(app_dir)
+
+    router = OperationalRouter(
+        audit_logger=AuditLogger(tmp_path / "audit.jsonl"),
+        lock_manager=TargetLockManager(tmp_path / "locks"),
+        sites_dir=sites_dir,
+    )
+    req = OperationRequest.model_validate(
+        {"operation": "workload.deploy", "target": "media"}
+    )
+
     with (
         patch("appctl_router.resolve_app", return_value=mock_app),
         patch("appctl_router.run_bounded_subprocess", return_value=(0, "ok", "")),

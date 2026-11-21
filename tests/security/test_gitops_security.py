@@ -1498,6 +1498,7 @@ services:
     "compose_body,expected_substr",
     [
         ("    user: '0:131'", "user"),
+        ("    user: '00:1000'", "root"),
         ("    user: '1000:0'", "user"),
         ("    user: '1000:docker'", "docker"),
         ("    user: '1000:44'", "44"),
@@ -1534,8 +1535,23 @@ def test_capability_grants_negative_and_bypass_cases(
     assert expected_substr.lower() in err.lower()
 
 
-def test_capability_grants_device_mknod_and_missing_node_rejected(tmp_path: Path):
-    """Ensure :rwm (mknod) and non-existent device nodes are rejected even with a device grant."""
+def test_validate_compose_security_fails_closed_when_pyyaml_missing(
+    tmp_path: Path, monkeypatch
+):
+    """Ensure validate_compose_security fails closed when PyYAML is unavailable."""
+    app_dir = tmp_path / "Workloads" / "app"
+    app_dir.mkdir(parents=True)
+    compose_file = app_dir / "docker-compose.yml"
+    compose_file.write_text("services:\n  app:\n    image: alpine\n", encoding="utf-8")
+
+    monkeypatch.setattr(gitops_dispatcher, "yaml", None)
+    ok, err = gitops_dispatcher.validate_compose_security(compose_file, app_dir)
+    assert ok is False
+    assert err is not None and "pyyaml" in err.lower()
+
+
+def test_capability_grants_device_mknod_rejected(tmp_path: Path):
+    """Ensure :rwm (mknod) is rejected even when the device node exists and is granted."""
     app_dir = tmp_path / "Workloads" / "media"
     app_dir.mkdir(parents=True)
     dev_dir = tmp_path / "dev" / "dri"
@@ -1566,26 +1582,47 @@ services:
     assert err is not None and "mknod" in err.lower()
 
 
-def test_capability_grants_volumes_reject_rw_long_syntax_unsafe_propagation_and_symlink_escape(
-    tmp_path: Path,
-):
-    """Ensure readOnlyPaths rejects long-syntax rw, unsafe bind propagation, and symlink escapes."""
+def test_capability_grants_missing_device_node_rejected(tmp_path: Path):
+    """Ensure a granted device path that does not exist on the host fails closed."""
+    app_dir = tmp_path / "Workloads" / "media"
+    app_dir.mkdir(parents=True)
+    missing_node = tmp_path / "dev" / "dri" / "renderD999"
+
+    grants_file = _write_grants(
+        tmp_path / "grants.json",
+        {"media": {"devices": [str(missing_node)]}},
+    )
+
+    compose_file = app_dir / "docker-compose.yml"
+    compose_file.write_text(
+        f"""
+services:
+  app:
+    image: alpine
+    devices:
+      - "{missing_node}:/dev/dri/renderD999:rw"
+""",
+        encoding="utf-8",
+    )
+    ok, err = gitops_dispatcher.validate_compose_security(
+        compose_file, app_dir, app_name="media", grants_file=grants_file
+    )
+    assert ok is False
+    assert err is not None and "does not exist" in err.lower()
+
+
+def test_capability_grants_volumes_reject_rw_long_syntax(tmp_path: Path):
+    """Ensure readOnlyPaths rejects long-syntax bind mounts without read_only: true."""
     app_dir = tmp_path / "Workloads" / "media"
     app_dir.mkdir(parents=True)
     media_dir = tmp_path / "mnt" / "media"
     media_dir.mkdir(parents=True)
-    outside_dir = tmp_path / "etc"
-    outside_dir.mkdir(parents=True)
-    escaped_link = media_dir / "escape"
-    escaped_link.symlink_to(outside_dir)
 
     grants_file = _write_grants(
         tmp_path / "grants.json",
         {"media": {"readOnlyPaths": [str(media_dir)]}},
     )
     compose_file = app_dir / "docker-compose.yml"
-
-    # 1. Long syntax without read_only: true
     compose_file.write_text(
         f"""
 services:
@@ -1604,7 +1641,19 @@ services:
     )
     assert ok is False
 
-    # 2. Long syntax with unsafe bind propagation (rshared)
+
+def test_capability_grants_volumes_reject_unsafe_propagation(tmp_path: Path):
+    """Ensure readOnlyPaths rejects long-syntax bind mounts with unsafe propagation (rshared)."""
+    app_dir = tmp_path / "Workloads" / "media"
+    app_dir.mkdir(parents=True)
+    media_dir = tmp_path / "mnt" / "media"
+    media_dir.mkdir(parents=True)
+
+    grants_file = _write_grants(
+        tmp_path / "grants.json",
+        {"media": {"readOnlyPaths": [str(media_dir)]}},
+    )
+    compose_file = app_dir / "docker-compose.yml"
     compose_file.write_text(
         f"""
 services:
@@ -1626,7 +1675,23 @@ services:
     assert ok is False
     assert err is not None and "propagation" in err.lower()
 
-    # 3. Symlink escape outside granted readOnlyPaths
+
+def test_capability_grants_volumes_reject_symlink_escape(tmp_path: Path):
+    """Ensure readOnlyPaths rejects symlinks resolving outside the granted directory."""
+    app_dir = tmp_path / "Workloads" / "media"
+    app_dir.mkdir(parents=True)
+    media_dir = tmp_path / "mnt" / "media"
+    media_dir.mkdir(parents=True)
+    outside_dir = tmp_path / "etc"
+    outside_dir.mkdir(parents=True)
+    escaped_link = media_dir / "escape"
+    escaped_link.symlink_to(outside_dir)
+
+    grants_file = _write_grants(
+        tmp_path / "grants.json",
+        {"media": {"readOnlyPaths": [str(media_dir)]}},
+    )
+    compose_file = app_dir / "docker-compose.yml"
     compose_file.write_text(
         f"""
 services:
@@ -1643,10 +1708,8 @@ services:
     assert ok is False
 
 
-def test_capability_grants_app_name_none_and_malformed_grants_fail_closed(
-    tmp_path: Path,
-):
-    """Ensure app_name=None gets zero grants and malformed grants.json fails closed."""
+def test_capability_grants_app_name_none_receives_zero_grants(tmp_path: Path):
+    """Ensure app_name=None receives zero grants even when grants.json defines workloads."""
     app_dir = tmp_path / "Workloads" / "media"
     app_dir.mkdir(parents=True)
     media_dir = tmp_path / "mnt" / "media"
@@ -1668,13 +1731,16 @@ services:
         encoding="utf-8",
     )
 
-    # app_name=None -> zero grants
     ok, _ = gitops_dispatcher.validate_compose_security(
         compose_file, app_dir, app_name=None, grants_file=grants_file
     )
     assert ok is False
 
-    # Malformed grants.json -> fails closed even on plain compose file
+
+def test_capability_grants_malformed_grants_fail_closed(tmp_path: Path):
+    """Ensure malformed grants.json fails closed even on a plain compose file."""
+    app_dir = tmp_path / "Workloads" / "media"
+    app_dir.mkdir(parents=True)
     plain_compose = app_dir / "plain.yml"
     plain_compose.write_text("services:\n  app:\n    image: alpine\n", encoding="utf-8")
     bad_grants = tmp_path / "bad_grants.json"
