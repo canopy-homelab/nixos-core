@@ -2,12 +2,12 @@
 
 ## 1. Project Overview & Architectural Boundaries
 
-**Canopy NixOS Core** (`canopy-homelab/nixos-core`) defines the declarative NixOS host foundation, shared platform infrastructure services, security boundaries, and the `appctl` operational control plane for the **Canopy** ecosystem. Independent application workloads live in `~/Sites/<app>` and integrate through declarative `app.yaml` manifests and workload-scoped Docker Compose files.
+**Canopy NixOS Core** (`canopy-homelab/nixos-core`) defines the declarative NixOS host foundation, shared platform infrastructure services, security boundaries, and the `appctl` operational control plane for the **Canopy** ecosystem. Independent application workloads live in `~/Workloads/<app>` and integrate through declarative `app.yaml` manifests and workload-scoped Docker Compose files.
 
-### Core vs. `~/Sites` Ownership
-- **Core owns**: NixOS host configuration, shared platform services (edge ingress, SSO/LDAP, mail, log/update monitors), platform-level ports and security policy, and orchestration/deployment mechanics.
-- **`~/Sites` owns**: Independently deployed application workloads, workload-specific `docker-compose.yml` topologies, and workload intent (`app.yaml`).
-- **Boundary Rule**: Never hardcode *workload-specific* domains, ports, containers, environment variables, or deployment policies in Core (`scripts/appctl*`, GitOps, or Core `docker-compose.yml`), and never move Core platform services into `~/Sites`. When ownership is ambiguous, consult [`docs/architecture.md`](docs/architecture.md) before changing the boundary.
+### Core vs. `~/Workloads` Ownership
+- **Core owns**: NixOS host configuration (`nixos/instance.example.nix` template for `/etc/nixos/homelab-instance.nix`), shared platform services (edge ingress, SSO/LDAP, mail, log/update monitors), platform-level ports and security policy (including `homelab.workloadGrants` -> `/etc/homelab/grants.json`), and orchestration/deployment mechanics (`appctl`, `gitops_dispatcher.py`, `workload_grants.py`).
+- **`~/Workloads` owns**: Independently deployed application workloads, workload-specific `docker-compose.yml` topologies, workload intent (`app.yaml`), and `deployments.yaml`.
+- **Boundary Rule**: Never hardcode *workload-specific* domains, ports, containers, environment variables, or deployment policies in Core (`scripts/appctl*`, GitOps, or Core `docker-compose.yml`), and never move Core platform services into `~/Workloads`. When ownership is ambiguous, consult [`docs/architecture.md`](docs/architecture.md) before changing the boundary.
 
 ### Context Discovery Hierarchy
 Before proposing or implementing changes, establish context in this order:

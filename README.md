@@ -4,7 +4,7 @@
 
 It is designed around a strict two-tier boundary:
 1. **Canopy NixOS Core (`canopy-homelab/nixos-core`, this repository)**: Owns NixOS operating system configuration, edge TLS ingress, SSO/LDAP directory identity, mail routing, read-only Docker socket isolation, and orchestration/deployment mechanics.
-2. **Canopy Workloads (`~/Sites/<app>`, e.g. `<user>/canopy-workloads`)**: Independently deployed application stacks that integrate with Core through self-describing `app.yaml` manifests and workload-scoped `docker-compose.yml` definitions.
+2. **Canopy Workloads (`~/Workloads/<app>`, e.g. `<user>/canopy-workloads`)**: Independently deployed application stacks that integrate with Core through self-describing `app.yaml` manifests and workload-scoped `docker-compose.yml` definitions.
 
 All platform definitions are strictly instance-agnostic; domain names (`HOMELAB_DOMAIN`) and secrets (`/run/secrets/`) are injected declaratively at runtime.
 
@@ -35,7 +35,7 @@ All platform definitions are strictly instance-agnostic; domain names (`HOMELAB_
                     ├───────────────────────────────┤
                     │ • Core Services (Homepage,    │
                     │   Dozzle, Stalwart, etc.)     │
-                    │ • Workload Apps (~/Sites/*)   │
+                    │ • Workload Apps (~/Workloads/*) │
                     └───────────────┬───────────────┘
                                     │ (Read-Only API via TCP:2375)
                                     ▼
@@ -81,7 +81,7 @@ For detailed runtime layers, network segmentation, and the P4 control-plane tran
 .
 ├── flake.nix                  # NixOS host configuration, devShell (.venv symlink), and CI checks
 ├── docker-compose.yml         # Core platform service stack
-├── nixos/                     # Declarative NixOS modules, systemd units, and SOPS secret wiring
+├── nixos/                     # Declarative NixOS modules, systemd units, SOPS secret wiring & instance.example.nix
 ├── config/                    # Service configurations (Traefik, Authelia, Homepage, deployments.yaml template)
 ├── scripts/
 │   ├── appctl                 # Thin operational CLI delegating to control plane daemon
@@ -95,6 +95,7 @@ For detailed runtime layers, network segmentation, and the P4 control-plane tran
 │   ├── bootstrap_token.py     # Operator Bearer token provisioning helper
 │   ├── core_manifest.py       # Authoritative Pydantic v2 schema v1.0 parser for app.yaml
 │   ├── gitops_dispatcher.py   # Authenticated webhook CD engine with Compose AST validation
+│   ├── workload_grants.py     # Fail-closed Pydantic v2 loader for /etc/homelab/grants.json
 │   └── run-tests              # Automated verification gate (Ruff, Pyright, Pytest, Nix flake checks)
 ├── tests/                     # Unit, structural, and security invariant test suites
 └── docs/                      # Architecture references, operational runbooks, and MADR decisions
@@ -166,7 +167,7 @@ systemctl status dynu-monitor.service
 
 | Document | Scope |
 | :--- | :--- |
-| [**`docs/architecture.md`**](docs/architecture.md) | Runtime layers, network segmentation, and Core / `~/Sites` boundaries. |
+| [**`docs/architecture.md`**](docs/architecture.md) | Runtime layers, network segmentation, and Core / `~/Workloads` boundaries. |
 | [**`docs/decisions/README.md`**](docs/decisions/README.md) | Architecture Decision Records (MADR 4.0) governing platform evolution. |
 | [**`ROADMAP.md`**](ROADMAP.md) | Phased engineering milestones (P0–P7) and baseline-to-target architecture matrix. |
 | [**`docs/appctl.md`**](docs/appctl.md) | Current `appctl` CLI commands, resolution hierarchy, and `app.yaml` schema v1.0 contract. |

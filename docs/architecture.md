@@ -14,7 +14,7 @@ To understand how the system is organized, three architectural dimensions are di
 
 ### A. Ownership Boundary
 * **Core (`~/Core`) owns**: NixOS host configuration, shared platform services, edge ingress, identity boundaries, secrets distribution, and deployment orchestration mechanics.
-* **Workload Plane (`~/Sites`) owns**: Independent application deployments, workload-specific Docker Compose files, declarative `app.yaml` manifests, and workload-scoped runtime state (`~/var/lib/homelab/<app>/`).
+* **Workload Plane (`~/Workloads`) owns**: Independent application deployments, workload-specific Docker Compose files, declarative `app.yaml` manifests, `~/Workloads/deployments.yaml`, and workload-scoped runtime state (`~/var/lib/homelab/<app>/`).
 
 ### B. Four Runtime Layers
 The runtime environment consists of four functional layers:
@@ -35,7 +35,7 @@ The runtime environment consists of four functional layers:
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│ 3. WORKLOAD PLANE (~/Sites)                                            │
+│ 3. WORKLOAD PLANE (~/Workloads)                                        │
 │    Autonomous Workload Repositories (SnappyMail, Docs, Gitea, etc.)    │
 │    Declarative app.yaml Manifests & Compose Stacks                     │
 └───────────────────────────────────┬────────────────────────────────────┘
@@ -51,7 +51,7 @@ The runtime environment consists of four functional layers:
 
 ### C. Cross-Cutting Orchestration
 Orchestration coordinates operations across the runtime layers:
-* **`appctl` Operational Control Plane Daemon (`homelab-appctl.service`, `scripts/appctl_daemon.py`, `scripts/appctl_router.py`)**: Centralized control plane running under isolated service identity `homelab-appctl:homelab-operators`. Exposes `POST /v1/operations` and `GET /v1/health` over `/run/homelab/appctl.sock` (mode `0660`) and `127.0.0.1:9001`, enforcing SHA-256 Bearer token authentication, 3-role RBAC (`homelab-admin`, `homelab-operator`, `homelab-viewer`), per-target `flock` serialization, fail-closed append-only audit logging (`/var/log/homelab/appctl/audit.jsonl`), Pydantic v2 `app.yaml` validation, Compose AST security checks, and pure-Python `.env` assembly.
+* **`appctl` Operational Control Plane Daemon (`homelab-appctl.service`, `scripts/appctl_daemon.py`, `scripts/appctl_router.py`)**: Centralized control plane running under isolated service identity `homelab-appctl:homelab-operators`. Exposes `POST /v1/operations` and `GET /v1/health` over `/run/homelab/appctl.sock` (mode `0660`) and `127.0.0.1:9001`, enforcing SHA-256 Bearer token authentication, 3-role RBAC (`homelab-admin`, `homelab-operator`, `homelab-viewer`), per-target `flock` serialization, fail-closed append-only audit logging (`/var/log/homelab/appctl/audit.jsonl`), Pydantic v2 `app.yaml` validation, Compose AST security checks (enforcing host-granted `homelab.workloadGrants` from `/etc/homelab/grants.json` via `scripts/workload_grants.py`), and pure-Python `.env` assembly.
 * **GitOps Webhook Dispatcher (`scripts/gitops_dispatcher.py`)**: Governed by the `homelab-gitops.service` systemd unit, it receives webhooks on port 9000, verifies HMAC-SHA256 signatures, enforces the `~/Workloads/deployments.yaml` allowlist (configured via `HOMELAB_DEPLOYMENTS_FILE`, with `config/deployments.yaml` as the example template), and delegates serialized `workload.update` execution to `homelab-appctl.service` over `/run/homelab/appctl.sock` using its `homelab-operator` Bearer token.
 
 ---
@@ -70,7 +70,7 @@ Orchestration coordinates operations across the runtime layers:
   - Mounted read-only: `/var/run/docker.sock:/var/run/docker.sock:ro`.
   - State-modifying and execution endpoints disabled: `POST=0`, `DELETE=0`, `BUILD=0`, `EXEC=0`, `COMMIT=0`, `CONFIGS=0`, `DISTRIBUTION=0`, `NODES=0`, `PLUGINS=0`, `SECRETS=0`, `SWARM=0`, `SYSTEM=0`.
   - Read-only inspection endpoints enabled: `CONTAINERS=1`, `NETWORKS=1`, `SERVICES=1`, `TASKS=1`, `IMAGES=1`, `VOLUMES=1`, `INFO=1`, `EVENTS=1`, `PING=1`, `VERSION=1`.
-* **Network**: Attached exclusively to `socket-net`. Application containers in `~/Sites` are never attached to `socket-net`.
+* **Network**: Attached exclusively to `socket-net`. Application containers in `~/Workloads` are never attached to `socket-net`.
 
 ### C. Identity & Directory Services (`lldap` & `authelia`)
 * **`lldap`**: Lightweight LDAP directory service storing user accounts, password hashes, and groups. Web UI exposed at `users.${HOMELAB_DOMAIN}` (protected by Authelia). SQLite database stored in `config/lldap/data/users.db`.
@@ -84,10 +84,10 @@ Orchestration coordinates operations across the runtime layers:
   - WebAdmin & JMAP endpoint accessible at `smtp.${HOMELAB_DOMAIN}` via Traefik.
   - Authenticates users against the LLDAP directory.
   - Outbound mail relay configured to route through an external smart host (Brevo SMTP relay via SOPS secrets).
-  - *(Note: User-facing webmail, such as SnappyMail, runs as an independent Class B workload in `~/Sites/snappymail` with isolated state under `~/var/lib/homelab/snappymail/`.)*
+  - *(Note: User-facing webmail, such as SnappyMail, runs as an independent Class B workload in `~/Workloads/snappymail` with isolated state under `~/var/lib/homelab/snappymail/`.)*
 
 ### E. Portal & Observability (`homepage`, `dozzle`)
-* **`homepage`**: Service dashboard at `dashboard.${HOMELAB_DOMAIN}`. Synchronized from `app.yaml` manifests in `~/Sites` by `appctl sync`.
+* **`homepage`**: Service dashboard at `dashboard.${HOMELAB_DOMAIN}`. Synchronized from `app.yaml` manifests in `~/Workloads` by `appctl sync`.
 * **`dozzle`**: Real-time container log viewer at `logs.${HOMELAB_DOMAIN}`, connecting read-only through `socket-proxy`.
 
 ### F. Host Foundation & Daemons
@@ -113,7 +113,7 @@ Homelab Core configures two isolated Docker bridge networks:
 │   │  • traefik (router)              • authelia (sso)            │     │
 │   │  • lldap (directory)             • stalwart (mail)           │     │
 │   │  • homepage (dashboard)          • dozzle (logs)             │     │
-│   │  • All User Workloads (~/Sites/*)                            │     │
+│   │  • All User Workloads (~/Workloads/*)                        │     │
 │   └──────────────────────────────┬───────────────────────────────┘     │
 │                                  │                                     │
 │   ┌──────────────────────────────┴───────────────────────────────┐     │
@@ -129,7 +129,7 @@ Homelab Core configures two isolated Docker bridge networks:
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **`proxy-net`**: Ingress routing network. Traefik directs traffic to backend service containers on this network. Workload containers in `~/Sites` join `proxy-net`.
+1. **`proxy-net`**: Ingress routing network. Traefik directs traffic to backend service containers on this network. Workload containers in `~/Workloads` join `proxy-net`.
 2. **`socket-net`**: Isolated Docker socket proxy network. Only Core infrastructure components needing read-only container metadata join this network.
 
 ---
@@ -151,13 +151,13 @@ The host firewall is configured in `nixos/modules/homeserver.nix`:
 | **993** | TCP | Stalwart | IMAPS (Secure IMAP) | Public |
 | **4190** | TCP | Stalwart | ManageSieve (Mail Filters) | Public |
 
-Application containers in `~/Sites` do not bind host ports directly; they receive traffic routed by Traefik over `proxy-net`.
+Application containers in `~/Workloads` do not bind host ports directly; they receive traffic routed by Traefik over `proxy-net`.
 
 ---
 
 ## 5. Workload Integration Model
 
-Workloads in `~/Sites/<app>` integrate with Core through three mechanisms:
+Workloads in `~/Workloads/<app>` integrate with Core through three mechanisms:
 
 1. **Manifest Metadata (`app.yaml`)**: Validated by `scripts/core_manifest.py` (Schema v1.0). Declares canonical identity, routed domain, upstream source provenance (`source.url`, `source.ref`), environment defaults, Homepage card layout, and allowlisted GitOps deployment policy.
 2. **Compose Configuration (`docker-compose.yml`)**:
@@ -177,4 +177,4 @@ Workloads in `~/Sites/<app>` integrate with Core through three mechanisms:
        # If auth is required:
        - "traefik.http.routers.${CONTAINER_NAME}.middlewares=authelia-auth@docker"
      ```
-3. **Execution & State Isolation**: `appctl` and `gitops_dispatcher.py` validate the manifest and Compose AST (blocking privilege escalation and out-of-bounds mounts) before supplying runtime environment variables (`SERVICE_DOMAIN`, `CONTAINER_NAME`, and projected secrets). Persistent mutable workload data resides strictly under `~/var/lib/homelab/<app>/`.
+3. **Execution & State Isolation**: `appctl` and `gitops_dispatcher.py` validate the manifest and Compose AST (blocking privilege escalation and out-of-bounds mounts unless explicitly authorized per workload in `homelab.workloadGrants`, projected to `/etc/homelab/grants.json` and read via `HOMELAB_GRANTS_FILE` per ADR-0005) before supplying runtime environment variables (`SERVICE_DOMAIN`, `CONTAINER_NAME`, and projected secrets). Persistent mutable workload data resides strictly under `~/var/lib/homelab/<app>/`.

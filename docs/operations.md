@@ -109,7 +109,7 @@ tail -n 20 /var/lib/dynu/ip_history.jsonl
 
 ## 3. Workload Lifecycle Operations (`appctl`)
 
-Applications in `~/Sites` are managed with the `appctl` CLI.
+Applications in `~/Workloads` are managed with the `appctl` CLI.
 
 ### Inspection & Status
 ```bash
@@ -145,7 +145,7 @@ appctl restart docs
 appctl restart traefik
 appctl restart authelia
 
-# Sequential stack update for independent Sites workloads (clean tree check -> git pull -> compose pull -> up -> sync)
+# Sequential stack update for independent Workloads (clean tree check -> git pull -> compose pull -> up -> sync)
 appctl update docs
 
 # Stream live container logs
@@ -158,13 +158,13 @@ appctl config docs
 
 ### Workload vs. Core Update Policy
 
-Homelab enforces a strict architectural boundary between independent application workloads (`~/Sites/<app>`) and Homelab Core (`~/Core`):
+Homelab enforces a strict architectural boundary between independent application workloads (`~/Workloads/<app>`) and Homelab Core (`~/Core`):
 
-#### 1. Independent Sites Workloads (`~/Sites/<app>`)
+#### 1. Independent Workloads (`~/Workloads/<app>`)
 - **Automated Lifecycle**: Workloads declare their lifecycle via `app.yaml` manifests and Compose definitions.
 - **Update Command**: `appctl update <workload>` performs pre-flight verification, branch matching, `git pull --ff-only`, container image pull, stack reload, and dashboard synchronization.
 - **GitOps Webhook Dispatch**: Workloads registered in `~/Workloads/deployments.yaml` (with `config/deployments.yaml` as the example template) can be triggered automatically via authenticated GitOps webhooks on Gitea push events.
-- **Daemon Permissions**: `homelab-appctl.service` holds read-write permissions over `~/Sites` to manage files, compose configurations, and workload state.
+- **Daemon Permissions**: `homelab-appctl.service` holds read-write permissions over `~/Workloads` to manage files, compose configurations, and workload state.
 
 #### 2. Homelab Core Platform Stack (`~/Core`)
 - **Host Foundation & Invariant Boundary**: Core defines NixOS host definitions, platform secrets, edge ingress, and security sandboxes.

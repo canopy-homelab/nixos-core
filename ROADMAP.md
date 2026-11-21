@@ -4,7 +4,7 @@ This document serves as the repository-facing projection of the authoritative **
 
 It describes the implementation trajectory and phased engineering milestones for evolving the **Canopy** platform (`canopy-homelab/nixos-core`) around a unified `appctl` Operational Control Plane.
 
-> **Governing Architectural Decisions**: See [`docs/decisions/README.md`](docs/decisions/README.md) for the authoritative ADR index ([ADR-0001: 3-Tier Provenance Model](docs/decisions/0001-3tier-architecture-and-provenance.md), [ADR-0002: Operational Control Plane Architecture](docs/decisions/0002-appctl-control-plane-architecture.md), and [ADR-0003: Pydantic v2 Runtime Validation](docs/decisions/0003-pydantic-v2-runtime-validation.md)).
+> **Governing Architectural Decisions**: See [`docs/decisions/README.md`](docs/decisions/README.md) for the authoritative ADR index ([ADR-0001: 3-Tier Provenance Model](docs/decisions/0001-3tier-architecture-and-provenance.md), [ADR-0002: Operational Control Plane Architecture](docs/decisions/0002-appctl-control-plane-architecture.md), [ADR-0003: Pydantic v2 Runtime Validation](docs/decisions/0003-pydantic-v2-runtime-validation.md), [ADR-0004: Unified ~/Workloads Monorepo](docs/decisions/0004-unified-workloads-monorepo.md), and [ADR-0005: Host-Granted Workload Capabilities](docs/decisions/0005-workload-capability-grants.md)).
 
 ---
 
@@ -29,7 +29,7 @@ It describes the implementation trajectory and phased engineering milestones for
 | **`appctl` Architecture** | Dedicated daemon service (`homelab-appctl.service`, user `homelab-appctl`) exposing `POST /v1/operations` over Unix socket and loopback HTTP, with thin-client CLI (`scripts/appctl_cli.py`). | Expand with Operations UI and external ForwardAuth integration (P5–P7). |
 | **Operational Auth** | Mandatory SHA-256 Bearer token + 3-role RBAC + UDS `SO_PEERCRED` viewer fallback (`/run/secrets/appctl/tokens.json`). | LLDAP directory RBAC & Authelia ForwardAuth (P5). |
 | **Metadata & Schema Engine** | Control-plane daemon validates requests via Pydantic v2 (`scripts/appctl_contracts.py`) and invokes `core_manifest.py` / `appctl_engine.py`. | Standardized JSON-RPC Model Context Protocol tools over Pydantic v2 schemas (P6). |
-| **Deployment Model** | Direct authoring of `app.yaml` and `docker-compose.yml` in `~/Sites/<app>/`. | Authoritative declarative Git state (`app.yaml` + Compose) managed via CLI, GitOps, or client-gated MCP tools (P6). |
+| **Deployment Model** | Authoritative declarative Git state (`app.yaml`, `docker-compose.yml`, `deployments.yaml`) in `~/Workloads/<app>/`, bounded by `homelab.workloadGrants` (`/etc/homelab/grants.json`). | Standardized JSON-RPC MCP tools (`P6`) and Operations UI (`P7`). |
 | **GitOps Engine** | Ingress/queue in `gitops_dispatcher.py`; worker delegates `workload.update` to daemon over `/run/homelab/appctl.sock`. | Unified continuous deployment worker driven by Git webhooks delegating to control plane daemon (P4 baseline consolidated). |
 | **Secret Distribution** | Age-encrypted `nixos/secrets.yaml` decrypted by `sops-nix` to tmpfs `/run/secrets/`. | Host secrets remain in `sops-nix`; workload secrets referenced by key and projected via `SecretProvider` (planned in P5). |
 | **Dashboard** | `appctl sync` compiles `config/homepage/services.yaml` from `app.yaml` manifests under `_homepage_sync.lock`. | Homepage consumes read-only live status from `appctl`; dedicated Operations UI client for management (planned in P7). |
@@ -45,6 +45,7 @@ It describes the implementation trajectory and phased engineering milestones for
 | **P2** | **GitOps Hardening** | Ingress Security | ✅ **Completed** | Authoritative Core repository registry (`deployments.yaml`), Compose AST security validator, systemd sandboxing. |
 | **P3** | **Manifest Contract** | Domain Engine | ✅ **Completed** | Schema v1.0 with Pydantic v2 fail-closed models (`core_manifest.py`), two-axis status inspection, unified `appctl_engine.py`. |
 | **P4** | **Control Plane Daemon** | API & Dispatch | ✅ **Completed** | `homelab-appctl.service` daemon, dual transports (socket + HTTP), mandatory auth admission gate, thin-client CLI, append-only audit log. |
+| **P4.5** | **Workloads Contract & Agent Readiness** | Monorepo & Grants | ✅ **Completed** *(in `nixos-core`)* | `~/Workloads/deployments.yaml` decoupling, read-only `agents` SSH user, `homelab.workloadGrants` (`ADR-0005`), `nixos/instance.example.nix`, and `:host` CI runner workflow. |
 | **P5** | **Identity & Secrets** | Auth & Providers | 🎯 **Current / Up Next** | LLDAP RBAC group mapping, Authelia ForwardAuth header integration, user-scoped token lifecycle, `SecretProvider` reference resolution. |
 | **P6** | **Homelab MCP Gateway** | Protocol Integration | ⏳ **Planned** | Standardized JSON-RPC Model Context Protocol tools (`appctl_status`, `appctl_deploy`, `appctl_logs`), client-side human-in-the-loop approvals, deprecation of on-server AI proposal compilers. |
 | **P7** | **Operations UI & Portal** | Client Integration | ⏳ **Planned** | Dedicated Operations UI client, Homepage read-only status integration widgets. |
