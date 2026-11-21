@@ -62,9 +62,9 @@ This ADR formally amends [ADR-0002](0002-appctl-control-plane-architecture.md) (
 3. **Exact-Match Pre-Flight Enforcement**:
    * `validate_compose_security()` evaluates resolved values (post-6-layer env assembly, or rejects uninterpolated `${...}` in `devices`, `volumes`, `group_add`, and `user`). When `app_name` is `None` or unknown, zero grants apply.
    * Every capability requested in `<app>/docker-compose.yml` must match an explicit grant for `<app>`:
-     * `devices` entries support `host:container[:perms]`, forbid `m` (`mknod`) in permissions, and require canonical host path resolution (`strict=True` existence check) within the granted device node or directory, disallowing `..` traversal or symlink escapes.
-     * `group_add` transitions from unconstrained to **default-deny** when no `groups` grant exists; `groups` entries canonicalize bidirectionally between group names and integer GIDs via the host group database (requiring `homelab-appctl.service` to retain `/etc/group` access without `PrivateUsers=true`, and supporting test injection). `user:` primary GIDs must also fall within granted `groups` (or standard unprivileged non-host-group UID/GID policy).
-     * `readOnlyPaths` validates both short (`host:container:ro[,opts]`) and long (`type: bind`, `read_only: true`) volume syntax, rejects unsafe bind propagation, and requires canonical host path containment (`strict=True`) within the granted directory.
+     * `devices` entries support `host:container[:perms]`, forbid `m` (`mknod`) in permissions, and require the host path to exist and resolve canonically within the granted device node or directory, disallowing `..` traversal or symlink escapes.
+     * `group_add` transitions from unconstrained to **default-deny** when no `groups` grant exists; `groups` entries canonicalize bidirectionally between group names and integer GIDs via the host group database. `user:` primary GIDs must either fall within granted `groups` or be unprivileged numeric IDs that do not map to privileged or host-sensitive groups.
+     * `readOnlyPaths` validates both short (`host:container:ro[,opts]`) and long (`type: bind`, `read_only: true`) volume syntax, rejects unsafe bind propagation, and requires the host path to exist and resolve canonically within the granted directory.
 
 4. **Tracked Instance Template (`nixos/instance.example.nix`)**:
    * `nixos-core` tracks `nixos/instance.example.nix` documenting `homelab.domain`, `homelab.operatorUser`, and `homelab.workloadGrants`.
