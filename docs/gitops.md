@@ -175,11 +175,11 @@ The continuous deployment engine operates strictly **downstream** of CI verifica
 
 ```
 [Developer / PR] ──► [Gitea Actions CI] ──► [Merge to main] ──► [Gitea Webhook] ──► [homelab-gitops] ──► [Deploy]
-                     (Ephemeral Container)                                           (Host Daemon)
+                     (:host act_runner)                                              (Host Daemon)
 ```
 
 1. **Pre-Merge CI Invariant (`.gitea/workflows/ci.yaml`)**:
-   - Executes inside containerized `act_runner` environments using **pre-baked toolchain images** (`container: nixery.dev/shell/coreutils/git/nix/nodejs:latest`).
+   - Executes directly on `:host` `act_runner` instances (`ubuntu-latest:host` / `nix:host`) with a **pre-baked host toolchain** (`nix`, `node`, `git`, `coreutils`), without spawning nested `container:` jobs.
    - Runs hermetic validation (`nix flake check`, `pytest`, `ruff`) with Git safe directory enforcement.
    - Prevents broken code, misconfigured flakes, or regression bugs from entering `main`.
 2. **Post-Merge CD Execution (`homelab-gitops.service`)**:
