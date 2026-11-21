@@ -85,12 +85,16 @@ MAX_OUTPUT_BYTES = 256 * 1024  # 256 KiB cap per invocation
 
 
 class RouterValidationError(Exception):
-    """Raised when request payload or pre-flight validation fails (400 Bad Request)."""
+    """Raised when request payload or pre-flight validation fails (400 Bad Request or 403 Capability Denied)."""
 
-    def __init__(self, message: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        code: ErrorCode = ErrorCode.ERR_VALIDATION_FAILED,
+    ) -> None:
         super().__init__(message)
-        self.code = ErrorCode.ERR_VALIDATION_FAILED
-        self.http_status = 400
+        self.code = code
+        self.http_status = code.http_status
 
 
 class RouterExecutionError(Exception):
@@ -313,14 +317,31 @@ def validate_workload_preflight(
     effective_name = app_name or manifest.name
     compose_file = _resolve_compose_file(app_dir)
     if compose_file.exists():
+        resolved_env = assemble_workload_env(app_dir, manifest, effective_name)
         ok, reason = validate_compose_security(
             compose_file=compose_file,
             allowed_root=app_dir,
             app_name=effective_name,
+            resolved_env=resolved_env,
         )
         if not ok:
+            is_cap_denial = bool(
+                reason
+                and reason.startswith(
+                    (
+                        "Capability not granted:",
+                        "Capability grants integrity check failed:",
+                    )
+                )
+            )
+            err_code = (
+                ErrorCode.ERR_CAPABILITY_NOT_GRANTED
+                if is_cap_denial
+                else ErrorCode.ERR_VALIDATION_FAILED
+            )
             raise RouterValidationError(
-                f"Compose AST security validation failed for '{effective_name}': {reason}"
+                f"Compose AST security validation failed for '{effective_name}': {reason}",
+                code=err_code,
             )
 
     return manifest, compose_file

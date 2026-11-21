@@ -20,6 +20,7 @@ def test_required_architectural_paths_exist():
         "SECURITY.md",
         "nixos",
         "nixos/configuration.nix",
+        "nixos/instance.example.nix",
         "nixos/modules/homeserver.nix",
         "nixos/secrets.yaml",
         "scripts/gitops_dispatcher.py",

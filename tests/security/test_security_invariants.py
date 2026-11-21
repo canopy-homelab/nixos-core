@@ -210,6 +210,7 @@ def test_platform_genericism_no_hardcoded_personal_domains_in_scripts_and_tests(
         CORE_ROOT / "flake.nix",
         CORE_ROOT / "docker-compose.yml",
         CORE_ROOT / "nixos" / "configuration.nix",
+        CORE_ROOT / "nixos" / "instance.example.nix",
     ]
     violations = []
 
@@ -552,6 +553,21 @@ def test_nixos_homeserver_defaults_to_workloads_dir():
     assert "SITES_DIR = config.homelab.sitesDir;" in content, (
         "homeserver.nix must export SITES_DIR for backward compatibility"
     )
+
+
+def test_nixos_workload_grants_option_and_projection():
+    """Ensure homeserver.nix defines homelab.workloadGrants, /etc/homelab/grants.json, and HOMELAB_GRANTS_FILE."""
+    homeserver_nix = CORE_ROOT / "nixos" / "modules" / "homeserver.nix"
+    content = homeserver_nix.read_text(encoding="utf-8")
+
+    assert "workloadGrants = lib.mkOption" in content
+    assert 'environment.etc."homelab/grants.json"' in content
+    assert 'user = "root";' in content
+    assert 'group = "homelab-operators";' in content
+    assert 'mode = "0640";' in content
+    assert content.count('HOMELAB_GRANTS_FILE = "/etc/homelab/grants.json";') >= 2
+    assert "PrivateUsers" not in content
+
 
 
 

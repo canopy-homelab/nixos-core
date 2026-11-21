@@ -10,6 +10,7 @@ deployment actions with zero Core restarts.
 import contextlib
 import datetime
 import fcntl
+import grp
 import hashlib
 import hmac
 import http.client
@@ -19,7 +20,8 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from collections.abc import Callable
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from appctl_contracts import OperationRequest, OperationType
@@ -30,6 +32,12 @@ from core_manifest import (
     parse_manifest,
 )
 from pydantic import ValidationError
+from workload_grants import (
+    PRIVILEGED_GROUPS,
+    WorkloadGrant,
+    WorkloadGrantsError,
+    load_workload_grants,
+)
 
 try:
     import yaml
@@ -415,23 +423,477 @@ def resolve_target(repo_name: str) -> tuple[Path | None, dict]:
 
 PROHIBITED_HOST_NAMESPACES = {"host"}
 DANGEROUS_SECURITY_OPTS = {"unconfined", "apparmor:unconfined", "seccomp:unconfined"}
+UNSAFE_BIND_PROPAGATIONS = {"shared", "rshared", "slave", "rslave"}
+_COMPOSE_VAR_RE = re.compile(
+    r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:-|-)([^}]*))?\}"
+)
+
+
+def _interpolate_compose_value(
+    value: str, resolved_env: dict[str, str] | None
+) -> str:
+    """Resolve ${VAR}, ${VAR:-default}, and ${VAR-default} using resolved_env without shell evaluation."""
+    if resolved_env is None or "${" not in value:
+        return value
+
+    def _replace(match: re.Match[str]) -> str:
+        var_name = match.group(1)
+        op = match.group(2)
+        default = match.group(3)
+        if op == ":-":
+            val = resolved_env.get(var_name)
+            return val if val else (default or "")
+        if op == "-":
+            return resolved_env.get(var_name, default or "")
+        return resolved_env.get(var_name, match.group(0))
+
+    return _COMPOSE_VAR_RE.sub(_replace, value)
+
+
+def _default_group_lookup(key: str | int) -> tuple[str, int]:
+    """Resolve a group name or numeric GID against the host group database."""
+    if isinstance(key, int) or (isinstance(key, str) and key.isdigit()):
+        entry = grp.getgrgid(int(key))
+    else:
+        entry = grp.getgrnam(str(key))
+    return entry.gr_name, entry.gr_gid
+
+
+def _resolve_granted_groups(
+    grant_groups: list[str],
+    lookup_fn: Callable[[str | int], tuple[str, int]],
+) -> tuple[set[str], set[int]]:
+    """Canonicalize granted groups bidirectionally between group names and integer GIDs."""
+    granted_names: set[str] = set()
+    granted_gids: set[int] = set()
+    for raw in grant_groups:
+        key: str | int = int(raw) if raw.isdigit() else raw
+        try:
+            res = lookup_fn(key)
+        except KeyError as exc:
+            raise WorkloadGrantsError(
+                f"Granted group '{raw}' does not exist in host group database."
+            ) from exc
+        if res is None:
+            raise WorkloadGrantsError(
+                f"Granted group '{raw}' does not exist in host group database."
+            )
+        gr_name, gr_gid = res
+        if gr_name.lower() in PRIVILEGED_GROUPS or str(gr_gid) in PRIVILEGED_GROUPS:
+            raise WorkloadGrantsError(
+                f"Granted group '{raw}' resolves to privileged group '{gr_name}:{gr_gid}'."
+            )
+        granted_names.add(gr_name)
+        granted_gids.add(gr_gid)
+    return granted_names, granted_gids
+
+
+def _validate_service_group_add(
+    svc_name: str,
+    svc: dict[str, Any],
+    grant: WorkloadGrant,
+    resolved_env: dict[str, str] | None,
+    lookup_fn: Callable[[str | int], tuple[str, int]],
+    granted_names: set[str],
+    granted_gids: set[int],
+) -> tuple[bool, str | None]:
+    """Enforce default-deny and host-granted group_add membership."""
+    group_add = svc.get("group_add")
+    if not group_add:
+        return True, None
+    if not isinstance(group_add, list):
+        return (
+            False,
+            f"Service '{svc_name}' specifies invalid 'group_add' configuration.",
+        )
+    if not grant.groups:
+        return (
+            False,
+            f"Capability not granted: Service '{svc_name}' requests 'group_add' without any granted groups.",
+        )
+
+    for item in group_add:
+        val = _interpolate_compose_value(str(item).strip(), resolved_env)
+        if "${" in val or "}" in val:
+            return (
+                False,
+                f"Service '{svc_name}' specifies prohibited variable interpolation in group_add: '{val}'.",
+            )
+        key: str | int = int(val) if val.isdigit() else val
+        try:
+            res = lookup_fn(key)
+        except KeyError:
+            res = None
+        if res is None:
+            return (
+                False,
+                f"Capability not granted: Service '{svc_name}' requests unknown group_add '{val}'.",
+            )
+        req_name, req_gid = res
+        if req_name.lower() in PRIVILEGED_GROUPS or str(req_gid) in PRIVILEGED_GROUPS:
+            return (
+                False,
+                f"Capability not granted: Service '{svc_name}' requests privileged group_add '{val}'.",
+            )
+        if req_name not in granted_names and req_gid not in granted_gids:
+            return (
+                False,
+                f"Capability not granted: Service '{svc_name}' requests ungranted group_add '{val}' ({req_name}:{req_gid}).",
+            )
+    return True, None
+
+
+def _validate_service_user(
+    svc_name: str,
+    svc: dict[str, Any],
+    resolved_env: dict[str, str] | None,
+    lookup_fn: Callable[[str | int], tuple[str, int]],
+    granted_names: set[str],
+    granted_gids: set[int],
+) -> tuple[bool, str | None]:
+    """Enforce non-root UID and granted/unprivileged primary GID containment for service user."""
+    raw_user = svc.get("user")
+    if raw_user is None:
+        return True, None
+    user_val = _interpolate_compose_value(str(raw_user).strip(), resolved_env)
+    if "${" in user_val or "}" in user_val:
+        return (
+            False,
+            f"Service '{svc_name}' specifies prohibited variable interpolation in user: '{user_val}'.",
+        )
+    if not user_val:
+        return True, None
+
+    if ":" in user_val:
+        uid_part, gid_part = user_val.split(":", 1)
+    else:
+        uid_part, gid_part = user_val, None
+
+    uid_clean = uid_part.strip()
+    try:
+        is_zero_uid = int(uid_clean) == 0
+    except ValueError:
+        is_zero_uid = False
+    if uid_clean.lower() == "root" or is_zero_uid:
+        return (
+            False,
+            f"Capability not granted: Service '{svc_name}' requests root user '{user_val}'.",
+        )
+
+    if gid_part is not None:
+        gid_clean = gid_part.strip()
+        if gid_clean.lower() in PRIVILEGED_GROUPS:
+            return (
+                False,
+                f"Capability not granted: Service '{svc_name}' requests privileged primary group '{gid_clean}' in user '{user_val}'.",
+            )
+        if gid_clean.isdigit():
+            gid_num = int(gid_clean)
+            if gid_num == 0:
+                return (
+                    False,
+                    f"Capability not granted: Service '{svc_name}' requests root GID 0 in user '{user_val}'.",
+                )
+            if gid_num in granted_gids:
+                return True, None
+            if gid_num < 1000:
+                return (
+                    False,
+                    f"Capability not granted: Service '{svc_name}' requests ungranted system GID '{gid_clean}' in user '{user_val}'.",
+                )
+            try:
+                res = lookup_fn(gid_num)
+            except KeyError:
+                res = None
+            if res is not None and res[0].lower() in PRIVILEGED_GROUPS:
+                return (
+                    False,
+                    f"Capability not granted: Service '{svc_name}' requests privileged GID '{gid_clean}' ({res[0]}).",
+                )
+        else:
+            try:
+                res = lookup_fn(gid_clean)
+            except KeyError:
+                res = None
+            if res is None:
+                return (
+                    False,
+                    f"Capability not granted: Service '{svc_name}' requests unknown primary group '{gid_clean}' in user '{user_val}'.",
+                )
+            req_name, req_gid = res
+            if req_name.lower() in PRIVILEGED_GROUPS or req_gid == 0:
+                return (
+                    False,
+                    f"Capability not granted: Service '{svc_name}' requests privileged primary group '{gid_clean}' in user '{user_val}'.",
+                )
+            if req_name not in granted_names and req_gid not in granted_gids:
+                return (
+                    False,
+                    f"Capability not granted: Service '{svc_name}' requests ungranted primary group '{gid_clean}' in user '{user_val}'.",
+                )
+    return True, None
+
+
+def _resolve_contained_host_path(
+    svc_name: str,
+    kind: str,
+    host_path: str,
+    granted_roots: list[Path],
+) -> tuple[bool, str | None]:
+    """Verify an absolute host path exists canonically without '..' and falls within a granted root."""
+    posix = PurePosixPath(host_path)
+    if not posix.is_absolute() or ".." in posix.parts:
+        return (
+            False,
+            f"Capability not granted: Service '{svc_name}' {kind} '{host_path}' must be absolute without '..'.",
+        )
+
+    try:
+        strict_host = Path(host_path).resolve(strict=True)
+    except OSError:
+        return (
+            False,
+            f"Capability not granted: Service '{svc_name}' {kind} '{host_path}' does not exist on host.",
+        )
+
+    if not any(
+        strict_host == g_res or strict_host.is_relative_to(g_res)
+        for g_res in granted_roots
+    ):
+        return (
+            False,
+            f"Capability not granted: Service '{svc_name}' requests ungranted {kind} '{host_path}'.",
+        )
+    return True, None
+
+
+def _validate_service_devices(
+    svc_name: str,
+    svc: dict[str, Any],
+    grant: WorkloadGrant,
+    resolved_env: dict[str, str] | None,
+) -> tuple[bool, str | None]:
+    """Validate host device mounts against granted device paths and forbid mknod ('m') permissions."""
+    devices = svc.get("devices")
+    if not devices:
+        return True, None
+    if not isinstance(devices, list):
+        return (
+            False,
+            f"Service '{svc_name}' specifies invalid 'devices' configuration.",
+        )
+    if not grant.devices:
+        return (
+            False,
+            f"Capability not granted: Service '{svc_name}' specifies prohibited host device mount: {devices}.",
+        )
+
+    granted_resolved: list[Path] = []
+    for g_dev in grant.devices:
+        try:
+            granted_resolved.append(Path(g_dev).resolve(strict=True))
+        except OSError:
+            continue
+
+    for dev_entry in devices:
+        dev_str = _interpolate_compose_value(str(dev_entry).strip(), resolved_env)
+        if "${" in dev_str or "}" in dev_str:
+            return (
+                False,
+                f"Service '{svc_name}' specifies prohibited variable interpolation in devices: '{dev_str}'.",
+            )
+        parts = dev_str.split(":")
+        if len(parts) in (1, 2):
+            host_dev, perms = parts[0].strip(), ""
+        elif len(parts) == 3:
+            host_dev, perms = parts[0].strip(), parts[2].strip()
+        else:
+            return (
+                False,
+                f"Service '{svc_name}' specifies malformed device entry '{dev_str}'.",
+            )
+
+        if "m" in perms.lower():
+            return (
+                False,
+                f"Capability not granted: Service '{svc_name}' requests prohibited 'm' (mknod) device permission in '{dev_str}'.",
+            )
+
+        ok_path, path_err = _resolve_contained_host_path(
+            svc_name, "device", host_dev, granted_resolved
+        )
+        if not ok_path:
+            return False, path_err
+    return True, None
+
+
+def _validate_service_volumes(
+    svc_name: str,
+    svc: dict[str, Any],
+    allowed_root: Path,
+    canonical_allowed_root: Path,
+    target_state_root: Path,
+    top_volumes: set[str],
+    grant: WorkloadGrant,
+    resolved_env: dict[str, str] | None,
+) -> tuple[bool, str | None]:
+    """Validate service volume mounts against workload/state roots and granted readOnlyPaths."""
+    volumes = svc.get("volumes", [])
+    if not isinstance(volumes, list):
+        return True, None
+
+    granted_ro_resolved: list[Path] = []
+    for g_ro in grant.readOnlyPaths:
+        try:
+            granted_ro_resolved.append(Path(g_ro).resolve(strict=True))
+        except OSError:
+            continue
+
+    for vol in volumes:
+        host_path = ""
+        is_short_ro = False
+        is_long_bind_ro = False
+        is_long_syntax = False
+        unsafe_prop: str | None = None
+
+        if isinstance(vol, str):
+            vol_resolved = _interpolate_compose_value(vol, resolved_env)
+            if "/var/run/docker.sock" in vol_resolved:
+                return (
+                    False,
+                    f"Service '{svc_name}' directly mounts Docker socket: {vol_resolved}.",
+                )
+            if ":" in vol_resolved:
+                parts = vol_resolved.split(":")
+                host_path = parts[0].strip()
+                if len(parts) >= 3:
+                    opts = [
+                        o.strip().lower()
+                        for o in parts[2].split(",")
+                        if o.strip()
+                    ]
+                    for opt in opts:
+                        if opt in UNSAFE_BIND_PROPAGATIONS:
+                            unsafe_prop = opt
+                    is_short_ro = ("ro" in opts) and ("rw" not in opts)
+            else:
+                host_path = vol_resolved.strip()
+        elif isinstance(vol, dict):
+            is_long_syntax = True
+            src = _interpolate_compose_value(
+                str(vol.get("source", "")), resolved_env
+            )
+            if "/var/run/docker.sock" in src:
+                return (
+                    False,
+                    f"Service '{svc_name}' directly mounts Docker socket: {src}.",
+                )
+            vol_type = vol.get("type")
+            if vol_type in ("bind", "volume") or (vol_type is None and src):
+                host_path = src
+            bind_cfg = vol.get("bind")
+            if isinstance(bind_cfg, dict):
+                prop = _interpolate_compose_value(
+                    str(bind_cfg.get("propagation", "")).strip().lower(),
+                    resolved_env,
+                )
+                if prop in UNSAFE_BIND_PROPAGATIONS:
+                    unsafe_prop = prop
+            is_long_bind_ro = (vol_type == "bind") and (
+                vol.get("read_only") is True
+            )
+
+        if unsafe_prop is not None:
+            return (
+                False,
+                f"Capability not granted: Service '{svc_name}' specifies unsafe bind propagation '{unsafe_prop}'.",
+            )
+
+        if not host_path:
+            continue
+
+        if "${" in host_path or "}" in host_path:
+            return (
+                False,
+                f"Service '{svc_name}' specifies prohibited variable interpolation in volume host path: '{host_path}'.",
+            )
+
+        if host_path in top_volumes and not (
+            host_path.startswith((".", "/", "~"))
+            or "/" in host_path
+            or "\\" in host_path
+        ):
+            continue
+
+        if not (
+            host_path.startswith((".", "/", "~"))
+            or "/" in host_path
+            or "\\" in host_path
+        ):
+            return (
+                False,
+                f"Service '{svc_name}' specifies undeclared named volume or ambiguous path: '{host_path}'.",
+            )
+
+        if host_path.startswith("~"):
+            expanded = Path(host_path).expanduser().resolve()
+        elif Path(host_path).is_absolute():
+            expanded = Path(host_path).resolve()
+        else:
+            expanded = (allowed_root / host_path).resolve()
+
+        is_in_workload = allowed_root.is_dir() and expanded.is_relative_to(
+            canonical_allowed_root
+        )
+        is_in_own_state = expanded.is_relative_to(target_state_root)
+
+        if is_in_workload or is_in_own_state:
+            continue
+
+        if not grant.readOnlyPaths:
+            return (
+                False,
+                f"Capability not granted: Service '{svc_name}' specifies prohibited host bind mount: '{host_path}'.",
+            )
+
+        if is_long_syntax and not is_long_bind_ro:
+            return (
+                False,
+                f"Capability not granted: Service '{svc_name}' external bind mount '{host_path}' must specify type=bind and read_only=true.",
+            )
+        if not is_long_syntax and not is_short_ro:
+            return (
+                False,
+                f"Capability not granted: Service '{svc_name}' external bind mount '{host_path}' must be read-only (:ro).",
+            )
+
+        ok_path, path_err = _resolve_contained_host_path(
+            svc_name, "external bind mount", host_path, granted_ro_resolved
+        )
+        if not ok_path:
+            return False, path_err
+
+    return True, None
 
 
 def validate_compose_security(
     compose_file: Path,
     allowed_root: Path,
     app_name: str | None = None,
+    resolved_env: dict[str, str] | None = None,
+    grants_file: Path | None = None,
+    group_lookup: Callable[[str | int], tuple[str, int]] | None = None,
 ) -> tuple[bool, str | None]:
     """
-    Pre-flight AST inspection of workload docker-compose.yml enforcing Core platform security invariants:
-    1. File Integrity: regular file, non-symlink (or strictly contained symlink).
-    2. Privilege Containment: blocks 'privileged: true', 'cap_add', 'devices', and 'security_opt: unconfined'.
-    3. Host Namespace Isolation: blocks 'pid: host', 'ipc: host', 'uts: host', 'userns_mode: host', 'network_mode: host'.
-    4. Docker Socket Ban: blocks direct mounts of /var/run/docker.sock.
-    5. Top-Level Inclusion Ban: blocks top-level 'include' directives.
-    6. Bind-Mount & Tenant State Isolation: resolves all relative and absolute host paths. Requires containment
-       strictly within either the workload root (allowed_root) OR the workload's dedicated state root
-       (~/var/lib/homelab/<app_name>/). Cross-tenant state mounts are rejected fail-closed.
+    Pre-flight AST inspection of workload docker-compose.yml enforcing Core platform security invariants
+    and host-granted workload capabilities (ADR-0005):
+    1. File Integrity & Parser: regular file, non-symlink (or strictly contained symlink); fails closed if PyYAML is unavailable.
+    2. Privilege Containment: blocks 'privileged: true', 'cap_add', 'device_cgroup_rules', and 'security_opt: unconfined'.
+    3. Host Namespace Isolation: blocks 'host', 'container:*', and 'service:*' across 'network_mode', 'pid', 'ipc', 'uts', 'userns_mode'.
+    4. Docker Socket & Include Bans: blocks direct mounts of /var/run/docker.sock and top-level 'include' directives.
+    5. Host-Granted Capabilities: enforces fail-closed workloadGrants for 'devices' (forbidding mknod 'm'), 'group_add',
+       'user' primary GIDs, and external ':ro' 'volumes' ('readOnlyPaths', rejecting unsafe bind propagation).
+    6. Bind-Mount & Tenant State Isolation: resolves all relative and absolute host paths within allowed_root or ~/var/lib/homelab/<app_name>/.
     """
     if not compose_file.exists():
         return True, None
@@ -454,48 +916,13 @@ def validate_compose_security(
     except OSError as e:
         return False, f"Failed to read compose file {compose_file}: {e}"
 
-    yaml_errors = (yaml.YAMLError,) if yaml is not None else ()
-    if yaml is not None:
-        try:
-            data = yaml.safe_load(content) or {}
-        except yaml_errors as e:
-            return False, f"Failed to parse compose YAML {compose_file}: {e}"
-    else:
-        # Fallback regex inspection if yaml module is not present
-        if re.search(
-            r"^\s*privileged:\s*true\b", content, re.MULTILINE | re.IGNORECASE
-        ):
-            return False, "Privileged mode is prohibited in workload compose files."
-        if "/var/run/docker.sock" in content:
-            return (
-                False,
-                "Docker socket mounts are prohibited in workload compose files.",
-            )
-        if re.search(
-            r"^\s*network_mode:\s*[\"']?host[\"']?",
-            content,
-            re.MULTILINE | re.IGNORECASE,
-        ):
-            return (
-                False,
-                "Host networking (network_mode: host) is prohibited in workload compose files.",
-            )
-        if re.search(r"^\s*cap_add:\s*", content, re.MULTILINE | re.IGNORECASE):
-            return (
-                False,
-                "Linux capabilities (cap_add) are prohibited in workload compose files.",
-            )
-        if re.search(r"^\s*devices:\s*", content, re.MULTILINE | re.IGNORECASE):
-            return (
-                False,
-                "Host device mounts (devices) are prohibited in workload compose files.",
-            )
-        if re.search(r"^\s*include:\s*", content, re.MULTILINE | re.IGNORECASE):
-            return (
-                False,
-                "Top-level include directives are prohibited in workload compose files.",
-            )
-        return True, None
+    if yaml is None:
+        return False, "PyYAML is required for Compose security validation."
+
+    try:
+        data = yaml.safe_load(content) or {}
+    except yaml.YAMLError as e:
+        return False, f"Failed to parse compose YAML {compose_file}: {e}"
 
     if not isinstance(data, dict):
         return False, f"Invalid compose root in {compose_file}: expected mapping"
@@ -509,6 +936,18 @@ def validate_compose_security(
     services = data.get("services")
     if not isinstance(services, dict):
         return True, None
+
+    try:
+        grants = load_workload_grants(grants_file)
+    except WorkloadGrantsError as exc:
+        return False, f"Capability grants integrity check failed: {exc}"
+
+    grant = grants.get(app_name, WorkloadGrant()) if app_name else WorkloadGrant()
+    lookup_fn = group_lookup or _default_group_lookup
+    try:
+        granted_names, granted_gids = _resolve_granted_groups(grant.groups, lookup_fn)
+    except WorkloadGrantsError as exc:
+        return False, f"Capability grants integrity check failed: {exc}"
 
     state_root = Path(
         os.environ.get("HOMELAB_STATE_ROOT", Path.home() / "var/lib/homelab")
@@ -539,12 +978,27 @@ def validate_compose_security(
                 f"Service '{svc_name}' specifies prohibited 'cap_add' capabilities: {cap_add}.",
             )
 
-        devices = svc.get("devices")
-        if devices:
+        if svc.get("device_cgroup_rules"):
             return (
                 False,
-                f"Service '{svc_name}' specifies prohibited host device mount: {devices}.",
+                f"Service '{svc_name}' specifies prohibited 'device_cgroup_rules'.",
             )
+
+        ok_dev, dev_err = _validate_service_devices(svc_name, svc, grant, resolved_env)
+        if not ok_dev:
+            return False, dev_err
+
+        ok_grp, grp_err = _validate_service_group_add(
+            svc_name, svc, grant, resolved_env, lookup_fn, granted_names, granted_gids
+        )
+        if not ok_grp:
+            return False, grp_err
+
+        ok_usr, usr_err = _validate_service_user(
+            svc_name, svc, resolved_env, lookup_fn, granted_names, granted_gids
+        )
+        if not ok_usr:
+            return False, usr_err
 
         sec_opts = svc.get("security_opt", [])
         if isinstance(sec_opts, str):
@@ -616,15 +1070,15 @@ def validate_compose_security(
                 if not clean_env:
                     continue
                 if clean_env.startswith("~"):
-                    resolved_env = Path(clean_env).expanduser().resolve()
+                    env_file_resolved = Path(clean_env).expanduser().resolve()
                 elif Path(clean_env).is_absolute():
-                    resolved_env = Path(clean_env).resolve()
+                    env_file_resolved = Path(clean_env).resolve()
                 else:
-                    resolved_env = (allowed_root / clean_env).resolve()
+                    env_file_resolved = (allowed_root / clean_env).resolve()
 
                 if not (
                     allowed_root.is_dir()
-                    and resolved_env.is_relative_to(canonical_allowed_root)
+                    and env_file_resolved.is_relative_to(canonical_allowed_root)
                 ):
                     return (
                         False,
@@ -633,85 +1087,26 @@ def validate_compose_security(
 
         for ns_key in ("network_mode", "pid", "ipc", "uts", "userns_mode"):
             val = str(svc.get(ns_key, "")).strip().lower()
-            if val in PROHIBITED_HOST_NAMESPACES:
+            if val in PROHIBITED_HOST_NAMESPACES or val.startswith(
+                ("container:", "service:")
+            ):
                 return (
                     False,
                     f"Service '{svc_name}' specifies prohibited host namespace '{ns_key}: {val}'.",
                 )
 
-        volumes = svc.get("volumes", [])
-        if isinstance(volumes, list):
-            for vol in volumes:
-                host_path = ""
-                if isinstance(vol, str):
-                    if "/var/run/docker.sock" in vol:
-                        return (
-                            False,
-                            f"Service '{svc_name}' directly mounts Docker socket: {vol}.",
-                        )
-                    if ":" in vol:
-                        host_path = vol.split(":")[0].strip()
-                    else:
-                        host_path = vol.strip()
-                elif isinstance(vol, dict):
-                    src = str(vol.get("source", ""))
-                    if "/var/run/docker.sock" in src:
-                        return (
-                            False,
-                            f"Service '{svc_name}' directly mounts Docker socket: {src}.",
-                        )
-                    vol_type = vol.get("type")
-                    if vol_type in ("bind", "volume") or (vol_type is None and src):
-                        host_path = src
-
-                if not host_path:
-                    continue
-
-                if "${" in host_path or "}" in host_path:
-                    return (
-                        False,
-                        f"Service '{svc_name}' specifies prohibited variable interpolation in volume host path: '{host_path}'.",
-                    )
-
-                # Declared top-level named volume without path separators
-                if host_path in top_volumes and not (
-                    host_path.startswith((".", "/", "~"))
-                    or "/" in host_path
-                    or "\\" in host_path
-                ):
-                    continue
-
-                # Undeclared named volumes or bare identifiers not starting with ., /, ~ or containing / are prohibited
-                if not (
-                    host_path.startswith((".", "/", "~"))
-                    or "/" in host_path
-                    or "\\" in host_path
-                ):
-                    return (
-                        False,
-                        f"Service '{svc_name}' specifies undeclared named volume or ambiguous path: '{host_path}'.",
-                    )
-
-                # Host bind mount evaluation
-                if host_path.startswith("~"):
-                    expanded = Path(host_path).expanduser().resolve()
-                elif Path(host_path).is_absolute():
-                    expanded = Path(host_path).resolve()
-                else:
-                    # Relative path resolved against workload root
-                    expanded = (allowed_root / host_path).resolve()
-
-                # Containment check: strictly within workload directory or dedicated state root
-                is_in_workload = allowed_root.is_dir() and expanded.is_relative_to(
-                    canonical_allowed_root
-                )
-                is_in_own_state = expanded.is_relative_to(target_state_root)
-
-                if not (is_in_workload or is_in_own_state):
-                    return (
-                        False,
-                        f"Service '{svc_name}' specifies prohibited host bind mount: '{host_path}'.",
-                    )
+        ok_vol, vol_err = _validate_service_volumes(
+            svc_name,
+            svc,
+            allowed_root,
+            canonical_allowed_root,
+            target_state_root,
+            top_volumes,
+            grant,
+            resolved_env,
+        )
+        if not ok_vol:
+            return False, vol_err
 
     return True, None
 
