@@ -1394,7 +1394,7 @@ def _fake_group_lookup(key: str | int) -> tuple[str, int]:
     raise KeyError(key)
 
 
-def test_capability_grants_positive_device_group_and_ro_volumes(tmp_path: Path):
+def test_validate_compose_security_permits_granted_stack(tmp_path: Path):
     """Positive ADR-0005 grants: render<->303, existing device, short & long :ro readOnlyPaths."""
     app_dir = tmp_path / "Workloads" / "media"
     app_dir.mkdir(parents=True)
@@ -1502,6 +1502,7 @@ services:
         ("    user: '1000:0'", "user"),
         ("    user: '1000:docker'", "docker"),
         ("    user: '1000:44'", "44"),
+        ("    user: '1000:999'", "999"),
         ("    group_add:\n      - '303'", "group_add"),
         ("    network_mode: 'container:traefik'", "container:traefik"),
         ("    network_mode: 'service:web'", "service:web"),
@@ -1509,7 +1510,7 @@ services:
         ("    user: '${PUID}:1000'", "interpolation"),
     ],
 )
-def test_capability_grants_negative_and_bypass_cases(
+def test_validate_compose_security_rejects_ungranted_capabilities(
     tmp_path: Path, compose_body: str, expected_substr: str
 ):
     """Ensure bypass vectors and ungranted capabilities fail closed."""
@@ -1750,4 +1751,104 @@ def test_capability_grants_malformed_grants_fail_closed(tmp_path: Path):
     )
     assert ok is False
     assert err is not None and "grants" in err.lower()
+
+
+def test_validate_compose_security_allows_ungranted_gid_1000(tmp_path: Path):
+    """Ensure unprivileged numeric GID >= 1000 (1000:1000) is allowed without a grant."""
+    app_dir = tmp_path / "Workloads" / "ungranted"
+    app_dir.mkdir(parents=True)
+    grants_file = _write_grants(tmp_path / "grants.json", {})
+    compose_file = app_dir / "docker-compose.yml"
+    compose_file.write_text(
+        "services:\n  app:\n    image: alpine\n    user: '1000:1000'\n",
+        encoding="utf-8",
+    )
+
+    ok, err = gitops_dispatcher.validate_compose_security(
+        compose_file,
+        app_dir,
+        app_name="ungranted",
+        grants_file=grants_file,
+        group_lookup=_fake_group_lookup,
+    )
+    assert ok is True
+    assert err is None
+
+
+def test_validate_compose_security_rejects_high_numeric_gid_for_privileged_group(
+    tmp_path: Path,
+):
+    """Ensure numeric GID >= 1000 that resolves to a privileged group (docker) fails closed."""
+    app_dir = tmp_path / "Workloads" / "ungranted"
+    app_dir.mkdir(parents=True)
+    grants_file = _write_grants(tmp_path / "grants.json", {})
+    compose_file = app_dir / "docker-compose.yml"
+    compose_file.write_text(
+        "services:\n  app:\n    image: alpine\n    user: '1000:1998'\n",
+        encoding="utf-8",
+    )
+
+    def lookup_with_high_docker(key: str | int) -> tuple[str, int]:
+        if key in (1998, "1998"):
+            return ("docker", 1998)
+        return _fake_group_lookup(key)
+
+    ok, err = gitops_dispatcher.validate_compose_security(
+        compose_file,
+        app_dir,
+        app_name="ungranted",
+        grants_file=grants_file,
+        group_lookup=lookup_with_high_docker,
+    )
+    assert ok is False
+    assert err is not None and "docker" in err.lower()
+
+
+def test_validate_compose_security_rejects_sibling_prefix_paths(tmp_path: Path):
+    """Ensure sibling directory prefixes (/dev/dri2, /mnt/media2) cannot bypass containment."""
+    app_dir = tmp_path / "Workloads" / "media"
+    app_dir.mkdir(parents=True)
+
+    granted_dev = tmp_path / "dev" / "dri"
+    granted_dev.mkdir(parents=True)
+    sibling_dev_dir = tmp_path / "dev" / "dri2"
+    sibling_dev_dir.mkdir(parents=True)
+    sibling_node = sibling_dev_dir / "renderD128"
+    sibling_node.write_text("", encoding="utf-8")
+
+    granted_media = tmp_path / "mnt" / "media"
+    granted_media.mkdir(parents=True)
+    sibling_media = tmp_path / "mnt" / "media2"
+    sibling_media.mkdir(parents=True)
+
+    grants_file = _write_grants(
+        tmp_path / "grants.json",
+        {
+            "media": {
+                "devices": [str(granted_dev)],
+                "readOnlyPaths": [str(granted_media)],
+            }
+        },
+    )
+
+    dev_compose = app_dir / "dev-compose.yml"
+    dev_compose.write_text(
+        f"services:\n  app:\n    image: alpine\n    devices:\n      - '{sibling_node}:/dev/dri/renderD128:rw'\n",
+        encoding="utf-8",
+    )
+    ok_dev, _ = gitops_dispatcher.validate_compose_security(
+        dev_compose, app_dir, app_name="media", grants_file=grants_file
+    )
+    assert ok_dev is False
+
+    vol_compose = app_dir / "vol-compose.yml"
+    vol_compose.write_text(
+        f"services:\n  app:\n    image: alpine\n    volumes:\n      - '{sibling_media}:/media:ro'\n",
+        encoding="utf-8",
+    )
+    ok_vol, _ = gitops_dispatcher.validate_compose_security(
+        vol_compose, app_dir, app_name="media", grants_file=grants_file
+    )
+    assert ok_vol is False
+
 

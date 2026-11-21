@@ -133,8 +133,9 @@ def test_load_workload_grants_verify_permissions_rejects_non_root_owner(
         load_workload_grants(grants_path, verify_permissions=True)
 
 
+@pytest.mark.parametrize("bad_mode", [0o100664, 0o100660, 0o100642, 0o100646])
 def test_load_workload_grants_verify_permissions_rejects_writable_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_mode: int
 ) -> None:
     grants_path = tmp_path / "grants.json"
     grants_path.write_text('{"schemaVersion": "1.0", "workloads": {}}', encoding="utf-8")
@@ -142,14 +143,15 @@ def test_load_workload_grants_verify_permissions_rejects_writable_mode(
     monkeypatch.setattr(
         os,
         "lstat",
-        lambda _p: SimpleNamespace(st_mode=0o100664, st_uid=0),
+        lambda _p: SimpleNamespace(st_mode=bad_mode, st_uid=0),
     )
     with pytest.raises(WorkloadGrantsError, match="writable"):
         load_workload_grants(grants_path, verify_permissions=True)
 
 
-def test_load_workload_grants_verify_permissions_accepts_root_0640(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("good_mode", [0o100640, 0o100644])
+def test_load_workload_grants_verify_permissions_accepts_non_writable_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, good_mode: int
 ) -> None:
     grants_path = tmp_path / "grants.json"
     grants_path.write_text('{"schemaVersion": "1.0", "workloads": {}}', encoding="utf-8")
@@ -157,6 +159,6 @@ def test_load_workload_grants_verify_permissions_accepts_root_0640(
     monkeypatch.setattr(
         os,
         "lstat",
-        lambda _p: SimpleNamespace(st_mode=0o100640, st_uid=0),
+        lambda _p: SimpleNamespace(st_mode=good_mode, st_uid=0),
     )
     assert load_workload_grants(grants_path, verify_permissions=True) == {}
