@@ -26,12 +26,69 @@
       default = "/home/${config.homelab.operatorUser}/Workloads";
       description = "Path to Workloads directory (legacy option name: sitesDir)";
     };
+    workloadGrants = lib.mkOption {
+      type = lib.types.attrsOf (lib.types.submodule {
+        options = {
+          devices = lib.mkOption {
+            type = lib.types.listOf lib.types.str;
+            default = [];
+            description = "Host device paths permitted for this workload (prefer specific nodes such as /dev/dri/renderD128).";
+          };
+          groups = lib.mkOption {
+            type = lib.types.listOf lib.types.str;
+            default = [];
+            description = "Host group names or numeric GIDs permitted in group_add and user: primary GID.";
+          };
+          readOnlyPaths = lib.mkOption {
+            type = lib.types.listOf lib.types.str;
+            default = [];
+            description = "Host directories permitted for read-only (:ro) bind mounts.";
+          };
+        };
+      });
+      default = {};
+      description = "Host-granted hardware devices, groups, and read-only storage paths keyed by workload name.";
+    };
   };
 
   config = let
     domainParts = lib.splitString "." config.homelab.domain;
     ldapBaseDn = lib.concatStringsSep "," (map (part: "dc=${part}") domainParts);
   in {
+    # ── Workload Capability Grant Invariants (ADR-0005) ─────────────────────────
+    assertions = let
+      grantsList = lib.mapAttrsToList (app: grant: { inherit app grant; }) config.homelab.workloadGrants;
+      privilegedGroups = [ "0" "root" "wheel" "docker" ];
+      hasInvalidPath = p:
+        !(lib.hasPrefix "/" p)
+        || (lib.hasInfix "/../" p)
+        || (lib.hasSuffix "/.." p)
+        || (p == "..");
+    in
+    (map ({ app, grant }: {
+      assertion = lib.all (g: !(lib.elem (lib.toLower (lib.strings.trim g)) privilegedGroups)) grant.groups;
+      message = "homelab.workloadGrants.${app}.groups must not contain privileged groups (0, root, wheel, docker).";
+    }) grantsList)
+    ++ (map ({ app, grant }: {
+      assertion = lib.all (p: !(hasInvalidPath p)) grant.devices;
+      message = "homelab.workloadGrants.${app}.devices must contain absolute paths without '..' traversal.";
+    }) grantsList)
+    ++ (map ({ app, grant }: {
+      assertion = lib.all (p: !(hasInvalidPath p)) grant.readOnlyPaths;
+      message = "homelab.workloadGrants.${app}.readOnlyPaths must contain absolute paths without '..' traversal.";
+    }) grantsList);
+
+    # ── Host Capability Grants Projection (/etc/homelab/grants.json) ─────────────
+    environment.etc."homelab/grants.json" = {
+      user = "root";
+      group = "homelab-operators";
+      mode = "0640";
+      text = builtins.toJSON {
+        schemaVersion = "1.0";
+        workloads = config.homelab.workloadGrants;
+      };
+    };
+
     # ── Host Activation Guard ────────────────────────────────────────────────────
     # Prevents activating on a live host if homelab.domain defaulted to example.test (e.g. forgot --impure)
     system.activationScripts.checkHomelabDomain = {
@@ -146,6 +203,7 @@
       WORKLOADS_DIR = config.homelab.sitesDir;
       SITES_DIR = config.homelab.sitesDir;
       HOMELAB_DEPLOYMENTS_FILE = "${config.homelab.sitesDir}/deployments.yaml";
+      HOMELAB_GRANTS_FILE = "/etc/homelab/grants.json";
     };
 
     serviceConfig = {
@@ -226,6 +284,7 @@
       HOMELAB_STATE_ROOT = "/home/${config.homelab.operatorUser}/var/lib/homelab";
       HOMELAB_CONFIG_DIR = "/home/${config.homelab.operatorUser}/.config/homelab";
       HOMELAB_DEPLOYMENTS_FILE = "${config.homelab.sitesDir}/deployments.yaml";
+      HOMELAB_GRANTS_FILE = "/etc/homelab/grants.json";
     };
 
     serviceConfig = {
