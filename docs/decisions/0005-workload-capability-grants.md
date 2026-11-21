@@ -19,11 +19,11 @@ Under [ADR-0002](0002-appctl-control-plane-architecture.md) (`DEC-04`, `DEC-05`)
 
 While this prevents a Tier 2 `git push` from escalating privileges on the host, it creates real friction for legitimate single-operator workloads:
 
-1. **Hardware Acceleration (`jellyfin`)**: Using an integrated GPU (`/dev/dri`) for VAAPI transcoding and reading a dedicated media partition (`/media:ro`) are blocked unless the validator is relaxed globally or fragile host-level bind-mount workarounds are maintained.
-2. **LAN Broadcast / Peer Services (e.g., `lg-smtv-mcp`)**: Workloads that send Wake-on-LAN broadcasts or discover LAN peers may require `network_mode: host` when bridged Docker networks cannot forward subnet broadcasts.
+1. **Hardware Acceleration & Media Access (`jellyfin`)**: Using an integrated GPU (`/dev/dri`) for VAAPI transcoding requires mounting host device nodes, passing supplementary groups (`group_add: ["303"]` / `render`), and reading a dedicated media partition (`/media:ro`). Currently, `devices:` and arbitrary bind mounts are completely blocked, while `group_add:` is unconstrained (risking arbitrary host GID elevation to groups like `docker` or `wheel` unless strictly governed).
+2. **LAN Broadcast / Peer Services (e.g., `lg-smtv-mcp`)**: Workloads that send Wake-on-LAN broadcasts or discover LAN peers may struggle across Docker bridge boundaries, prompting requests for `network_mode: host`. However, blanket host networking collapses network namespace isolation, exposing loopback control services (such as `homelab-appctl.service` on `127.0.0.1:9001`) and bypassing proxy network segmentation.
 3. **Host-Agnostic Core Boundary**: Hardcoding `/dev/dri`, `/media`, or specific workload names inside `nixos-core` violates platform genericism and couples Core to one machine's hardware and app catalog.
 
-The central architectural question is: **How should Canopy NixOS Core permit hardware devices, external read-only paths, and host networking for specific workloads without hardcoding personal infrastructure into `nixos-core` or weakening the Tier 2 -> Tier 3 trust boundary?**
+The central architectural question is: **How should Canopy NixOS Core permit hardware devices, supplementary groups, and external read-only storage paths for specific workloads without hardcoding personal infrastructure into `nixos-core` or weakening the Tier 2 -> Tier 3 trust boundary?**
 
 ## Decision Drivers
 
@@ -48,12 +48,12 @@ Chosen option: **Option 3: "Compose Requests, Nix Grants" via `homelab.workloadG
 This ADR formally amends [ADR-0002](0002-appctl-control-plane-architecture.md) (`DEC-04`, `DEC-05`) with the following commitments:
 
 1. **Typed Host Grant Schema (`homelab.workloadGrants`)**:
-   * `nixos/modules/homeserver.nix` defines `homelab.workloadGrants` as an attribute set keyed by workload name, supporting four explicit grant fields:
+   * `nixos/modules/homeserver.nix` defines `homelab.workloadGrants` as an attribute set keyed by workload name, supporting three explicit grant fields:
      * `devices` (list of exact device paths, e.g. `"/dev/dri"` or `"/dev/dri/renderD128"`).
-     * `groups` (list of supplementary group names/GIDs permitted in `group_add`).
+     * `groups` (list of supplementary group names/GIDs permitted in `group_add`, such as `"303"` or `"render"`).
      * `readOnlyPaths` (list of host directories permitted for `:ro` bind mounts only).
-     * `hostNetwork` (boolean permitting `network_mode: host`).
-   * `privileged: true`, `/var/run/docker.sock`, `cap_add`, and `pid`/`ipc`/`uts`/`userns_mode: host` remain permanently prohibited and are not grantable.
+   * Note on `network_mode: host`: To preserve the `127.0.0.1:9001` daemon boundary and Traefik reverse-proxy segmentation, host networking is rejected and excluded from `workloadGrants`. Workloads requiring L2 broadcast/discovery should be provisioned on dedicated isolated Docker networks (`macvlan`/`ipvlan`) or host-side intermediaries.
+   * `privileged: true`, `/var/run/docker.sock`, `cap_add`, and host namespaces (`pid`, `ipc`, `uts`, `userns_mode`, `network_mode: host`) remain permanently prohibited and are not grantable.
 
 2. **Immutable Host Projection (`/etc/homelab/grants.json`)**:
    * NixOS generates `/etc/homelab/grants.json` (root-owned, readable by `homelab-appctl` and `homelab-gitops`, configurable via `HOMELAB_GRANTS_FILE` for testing).
@@ -61,9 +61,10 @@ This ADR formally amends [ADR-0002](0002-appctl-control-plane-architecture.md) (
 
 3. **Exact-Match Pre-Flight Enforcement**:
    * Every capability requested in `<app>/docker-compose.yml` must match an explicit grant for `<app>` in `/etc/homelab/grants.json`:
-     * `devices` entries must resolve canonically within the granted device path(s) (with no `..` traversal or container-side privilege escalation).
-     * `readOnlyPaths` grants permit mounts **only** when `:ro` is specified and `Path.resolve()` remains contained within the granted directory.
-     * `network_mode: host` is permitted **only** when `hostNetwork = true` for that workload.
+     * `devices` entries must have their host path resolve canonically strictly within the granted device node or directory, strictly disallowing directory traversal (`..`) or symlink escapes.
+     * `groups` entries must match allowlisted GIDs or group names granted to that specific workload.
+     * `readOnlyPaths` grants permit mounts **only** when `:ro` mode is specified and the canonical host path resolves strictly within the granted directory.
+   * *Trade-off (Host Path Coupling)*: Workload Compose definitions declare physical host paths matching host grants; logical capability aliasing via environment variable injection remains an optional future refinement.
 
 4. **Tracked Instance Template (`nixos/instance.example.nix`)**:
    * `nixos-core` tracks `nixos/instance.example.nix` documenting `homelab.domain`, `homelab.operatorUser`, and `homelab.workloadGrants`.
