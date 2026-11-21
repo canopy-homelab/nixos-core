@@ -355,3 +355,15 @@ description: "Pydantic serialization test"
     assert dumped["name"] == "serialized-app"
     assert dumped["schemaVersion"] == "1.0"
     assert manifest.to_dict()["name"] == "serialized-app"
+
+
+def test_parse_manifest_rejects_homelab_grants_file_in_env():
+    """Ensure HOMELAB_GRANTS_FILE is in RESERVED_ENV_KEYS and cannot be overridden by app.yaml."""
+    raw_yaml = """
+name: "grants-override-app"
+env:
+  HOMELAB_GRANTS_FILE: "/tmp/evil-grants.json"
+"""
+    with pytest.raises(ManifestValidationError):
+        parse_manifest(raw_yaml)
+

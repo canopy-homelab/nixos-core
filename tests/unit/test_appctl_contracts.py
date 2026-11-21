@@ -445,12 +445,13 @@ def test_operation_request_backward_compatibility_aliases():
 # ---------------------------------------------------------------------------
 
 
-def test_error_code_taxonomy_contains_exactly_6_canonical_codes():
-    assert len(ErrorCode) == 6
+def test_error_code_taxonomy_contains_exactly_7_canonical_codes():
+    assert len(ErrorCode) == 7
     expected_codes = {
         "ERR_VALIDATION_FAILED",
         "ERR_AUTH_REQUIRED",
         "ERR_PERMISSION_DENIED",
+        "ERR_CAPABILITY_NOT_GRANTED",
         "ERR_TARGET_NOT_FOUND",
         "ERR_CONCURRENT_MUTATION",
         "ERR_EXECUTION_FAILED",
@@ -462,6 +463,7 @@ def test_error_code_http_status_mapping():
     assert ErrorCode.ERR_VALIDATION_FAILED.http_status == 400
     assert ErrorCode.ERR_AUTH_REQUIRED.http_status == 401
     assert ErrorCode.ERR_PERMISSION_DENIED.http_status == 403
+    assert ErrorCode.ERR_CAPABILITY_NOT_GRANTED.http_status == 403
     assert ErrorCode.ERR_TARGET_NOT_FOUND.http_status == 404
     assert ErrorCode.ERR_CONCURRENT_MUTATION.http_status == 409
     assert ErrorCode.ERR_EXECUTION_FAILED.http_status == 500

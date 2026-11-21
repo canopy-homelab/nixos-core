@@ -116,11 +116,12 @@ FlexibleWorkloadAction = FlexibleOperationType
 
 
 class ErrorCode(StrEnum):
-    """Canonical 6-code error taxonomy for homelab-appctl.service."""
+    """Canonical 7-code error taxonomy for homelab-appctl.service."""
 
     ERR_VALIDATION_FAILED = "ERR_VALIDATION_FAILED"
     ERR_AUTH_REQUIRED = "ERR_AUTH_REQUIRED"
     ERR_PERMISSION_DENIED = "ERR_PERMISSION_DENIED"
+    ERR_CAPABILITY_NOT_GRANTED = "ERR_CAPABILITY_NOT_GRANTED"
     ERR_TARGET_NOT_FOUND = "ERR_TARGET_NOT_FOUND"
     ERR_CONCURRENT_MUTATION = "ERR_CONCURRENT_MUTATION"
     ERR_EXECUTION_FAILED = "ERR_EXECUTION_FAILED"
@@ -134,6 +135,7 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.ERR_VALIDATION_FAILED: 400,
     ErrorCode.ERR_AUTH_REQUIRED: 401,
     ErrorCode.ERR_PERMISSION_DENIED: 403,
+    ErrorCode.ERR_CAPABILITY_NOT_GRANTED: 403,
     ErrorCode.ERR_TARGET_NOT_FOUND: 404,
     ErrorCode.ERR_CONCURRENT_MUTATION: 409,
     ErrorCode.ERR_EXECUTION_FAILED: 500,
