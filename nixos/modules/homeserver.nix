@@ -110,7 +110,7 @@
     '';
     # Define the keys to decrypt from secrets.yaml
     sops.secrets = (lib.genAttrs [
-      "dynu/api_key"
+      "cloudflare/dns_api_token"
       "traefik/acme_email"
       "authelia/session_secret"
       "authelia/storage_encryption_key"
@@ -145,7 +145,7 @@
       DOMAIN = config.homelab.domain;
       LLDAP_LDAP_BASE_DN = ldapBaseDn;
       DOCKER_API_VERSION = "1.40";
-      DYNU_API_KEY = config.sops.placeholder."dynu/api_key";
+      CF_DNS_API_TOKEN = config.sops.placeholder."cloudflare/dns_api_token";
       ACME_EMAIL = config.sops.placeholder."traefik/acme_email";
       AUTHELIA_SESSION_SECRET = config.sops.placeholder."authelia/session_secret";
       AUTHELIA_STORAGE_ENCRYPTION_KEY = config.sops.placeholder."authelia/storage_encryption_key";
@@ -326,6 +326,8 @@
     "d ${config.homelab.coreDir}/config/stalwart/data 0777 ${config.homelab.operatorUser} users -"
     "d ${config.homelab.coreDir}/config/stalwart/etc 0777 ${config.homelab.operatorUser} users -"
     "d ${config.homelab.sitesDir} 0755 ${config.homelab.operatorUser} users -"
+    "a+ ${config.homelab.coreDir}/config/authelia - - - - d:u:1000:rwX,u:1000:rwx,m::rwx"
+    "a+ ${config.homelab.coreDir}/config/authelia/db.sqlite3 - - - - u:1000:rw,m::rw"
     "a+ ${config.homelab.coreDir}/config/authelia/emails.txt - - - - u:1000:rw,m::rw"
     "d /home/${config.homelab.operatorUser}/.local/state/homelab/gitops 0755 ${config.homelab.operatorUser} users -"
     "d /home/${config.homelab.operatorUser}/.local/state/homelab/docker 0755 ${config.homelab.operatorUser} users -"

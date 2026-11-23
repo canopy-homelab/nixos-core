@@ -44,7 +44,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      - DYNU_API_KEY=${DYNU_API_KEY}
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
       - DOCKER_API_VERSION=${DOCKER_API_VERSION:-1.40}
     command:
       - "--log.level=INFO"
@@ -61,7 +61,7 @@ services:
       - "--entrypoints.websecure.http.tls.domains[0].sans=*.${DOMAIN}"
       # SSL Setup
       - "--certificatesresolvers.myresolver.acme.dnschallenge=true"
-      - "--certificatesresolvers.myresolver.acme.dnschallenge.provider=dynu"
+      - "--certificatesresolvers.myresolver.acme.dnschallenge.provider=cloudflare"
       - "--certificatesresolvers.myresolver.acme.email=${ACME_EMAIL}"
       - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
     volumes:
@@ -80,6 +80,11 @@ services:
       - "traefik.http.middlewares.authelia-auth.forwardauth.address=http://authelia:9091/api/verify?rd=https://auth.${DOMAIN}/"
       - "traefik.http.middlewares.authelia-auth.forwardauth.trustForwardHeader=true"
       - "traefik.http.middlewares.authelia-auth.forwardauth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Email,Remote-Name"
+
+      # Middleware: Public Rate Limit (mitigates scraper/crawler bursts on public routes)
+      - "traefik.http.middlewares.public-ratelimit.ratelimit.average=20"
+      - "traefik.http.middlewares.public-ratelimit.ratelimit.burst=40"
+      - "traefik.http.middlewares.public-ratelimit.ratelimit.period=1s"
 
       # Dashboard - Public (HTTPS)
       - "traefik.http.routers.traefik-dash.rule=Host(`traefik.${DOMAIN}`)"
