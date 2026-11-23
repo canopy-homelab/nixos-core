@@ -10,7 +10,6 @@
     ./hardware-configuration.nix      # Server-specific disk and CPU configuration
     ./modules/homeserver.nix          # Core services: systemd units, Authelia, SOPS secrets
     ./modules/traefik-deployments.nix # Traefik deployment secrets and env templates
-    ./modules/dynu.nix                # Dynu DDNS smart IP monitor service
     ./modules/shell.nix               # Declarative bash environment for the server
   ] ++ lib.optional (builtins.pathExists /etc/nixos/homelab-instance.nix) /etc/nixos/homelab-instance.nix
     ++ lib.optional (!(builtins.pathExists /etc/nixos/homelab-instance.nix) && builtins.pathExists ./instance.nix) ./instance.nix;

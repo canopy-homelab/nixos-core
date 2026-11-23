@@ -3,9 +3,12 @@
 # This replaces the laptop-inherited ~/.bashrc with a clean, server-appropriate profile.
 # Delivered via /etc/bashrc — no Home Manager required.
 
-{ pkgs, ... }:
+{ config, pkgs, ... }:
 
 {
+  sops.secrets."system/pdf_decrypt_password" = {
+    owner = config.homelab.operatorUser;
+  };
   # ── Shell-integrated programs ─────────────────────────────────────────────────
   # These handle both installation and bash hook injection automatically
   programs.zoxide.enable = true;   # smart cd with bash init wired into /etc/bashrc
